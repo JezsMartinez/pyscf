@@ -2102,6 +2102,17 @@ class Mole(lib.StreamObject):
         self.nucmod = {}
 # self.ecp = {atom_symbol: [[l, (r_order, expnt, c),...]]}
         self.ecp = {}
+
+# self.smearing -- :PRG: 2019 
+        self.smearing = False
+        self.tau      = None
+        self.FermiEnergy = None
+        self.static = None
+# self.external_embedding_potential -- MP 2021
+        self.extemb = None
+        self.vemb = None
+        self.ex_grids_coord = None
+        self.ex_grids_weights = None
 # Nuclear property. self.nucprop = {atom_symbol: {key: value}}
         self.nucprop = {}
 ##################################################
