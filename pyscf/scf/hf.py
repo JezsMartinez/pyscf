@@ -1490,53 +1490,6 @@ def as_scanner(mf):
     return SCF_Scanner(mf)
 
 
-############
-
-class VEMB(lib.StreamObject):
-    '''VEMB base class. Calculate FDE Interaction Energy and Total 
-    Subsystem DFT energy
-
-    Attributes:
-        vemb: bool
-            If True it adds a Embedding Field to the Initital Fock Matrix
-        field: Numpy Array
-            With the Values of a field on a regular FFT grid to a 
-            custom grid
-        mf: SCF class of PySCF
-        ex_grids_coord: Ext. np.Array
-            x,y,z GRID coordinates
-        ex_grids_weights: Ext. np.Array
-            GRID Weights
-    Save Results
-        emb_e: Embedded Energy
-        '''
-
-
-    def __init__(self,mol):
-        if not mol._built:
-            sys.stderr.write('Warning: %s must be initialized before calling SCF.\n'
-                    'Initialize %s in %s\n' % (mol, mol, self))
-            mol.build()
-        self.mol = mol
-        self.verbose = mol.verbose
-        self.max_memory = mol.max_memory
-        self.stdout = mol.stdout
-        self.extemb = mol.extemb
-        self.vemb = mol.vemb
-        self.ex_grids_coord = mol.ex_grids_coord
-        self.ex_grids_weights = mol.ex_grids_weights
-
-    def vemb_mat(self,mol=None,extemb=None,ex_grids_coord=None,ex_grids_weights=None):
-        if mol is None: mol = self.mol
-        if extemb is None: extemb=mol.extemb
-        if ex_grids_coord is None: ex_grids_coord=mol.ex_grids_coord
-        if ex_grids_weights is None: ex_grids_weights=mol.ex_grids_weights
-        return vemb_mat(self,extemb,ex_grids_coord,ex_grids_weights)
-
-############
-
-
-
 class SCF(lib.StreamObject):
     '''SCF base class.   non-relativistic RHF.
 
