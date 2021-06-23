@@ -486,7 +486,7 @@ class _ChemistsERIs(mp2._ChemistsERIs):
                 mat = mp._scf.vemb_mat()
                 fockao += mat
             print("Final: ",fockao[0][0][0])
-            print("FDE: ",numpy.einsum('imn,inm->',dm,mat))
+            #print("FDE: ",numpy.einsum('imn,inm->',dm,mat))
             focka = mo_a.conj().T.dot(fockao[0]).dot(mo_a)
             fockb = mo_b.conj().T.dot(fockao[1]).dot(mo_b)
             self.fock = (focka, fockb)

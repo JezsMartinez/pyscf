@@ -811,7 +811,7 @@ class _ChemistsERIs(ccsd._ChemistsERIs):
         if mycc._scf.vemb:
             mat = mycc._scf.vemb_mat()
             fockao += mat
-            print("FDE: ", np.einsum('imn,inm->',dm,mat))
+            #print("FDE: ", np.einsum('imn,inm->',dm,mat))
         print("Final: ",fockao[0][0][0])
         self.focka = reduce(np.dot, (mo_coeff[0].conj().T, fockao[0], mo_coeff[0]))
         self.fockb = reduce(np.dot, (mo_coeff[1].conj().T, fockao[1], mo_coeff[1]))
