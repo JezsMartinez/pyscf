@@ -757,12 +757,21 @@ def get_vemb_mu_nu(mf,vembf,ex_grids_coord,ex_grids_weights):
     mat[1] = mat[1] + mat[1].T.conj()
     return mat
 
-def vemb_mat(mf,extemb,ex_grids_coord,ex_grids_weights):
+def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
     ''' Get the Embedding Potential in the MO basis'''
     
-    vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
+    if mf.ext_spline:
+        print("Using External Spline Values on a Custom Grid")
+        if mf.nelec[0] == mf.nelec[1]:
+            vembf=spline_values
+        else:
+            vembf=numpy.empty((2,ex_grids_coord.shape[0]))
+            vembf[0]=spline_values
+            vembf[1]=spline_values
+    else:
+        print("Using Spline Function on PySCF on a Custom Grid")
+        vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
     mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u.
-    
     return mat
 
 #END PRG contribution
@@ -1549,6 +1558,9 @@ class SCF(lib.StreamObject):
         vemb : bool
             If True it add self-consistently Vemb (Embedding Potential) to 
             fock0 matrix :PRG:
+        ext_spline : bool
+            If True it takes the external spline values on a custom grid and 
+            add it to fock0 matrix :PRG:
 
     Saved results:
 
@@ -1609,6 +1621,8 @@ class SCF(lib.StreamObject):
         self.vemb = mol.vemb
         self.ex_grids_coord = mol.ex_grids_coord
         self.ex_grids_weights = mol.ex_grids_weights
+        self.ext_spline = mol.ext_spline
+        self.spline_values = mol.spline_values
 
         # If chkfile is muted, SCF intermediates will not be dumped anywhere.
         if MUTE_CHKFILE:
@@ -1824,12 +1838,16 @@ class SCF(lib.StreamObject):
         if option is None: option = 2
         return static_dft(self,s, mo_energy, mo_coeff, mo_occ,option)
 
-    def vemb_mat(self,mol=None,extemb=None,ex_grids_coord=None,ex_grids_weights=None):
+    def vemb_mat(self,mol=None,extemb=None,spline_values=None,ex_grids_coord=None,ex_grids_weights=None):
+        
         if mol is None: mol = self.mol
-        if extemb is None: extemb=mol.extemb
+        
+        if self.ext_spline is True and spline_values is None: spline_values=mol.spline_values
+        if self.ext_spline is None and extemb is None: extemb=mol.extemb 
+
         if ex_grids_coord is None: ex_grids_coord=mol.ex_grids_coord
         if ex_grids_weights is None: ex_grids_weights=mol.ex_grids_weights
-        return vemb_mat(self,extemb,ex_grids_coord,ex_grids_weights)
+        return vemb_mat(self,extemb,spline_values,ex_grids_coord,ex_grids_weights)
 
     def scf(self, dm0=None, **kwargs):
         '''SCF main driver

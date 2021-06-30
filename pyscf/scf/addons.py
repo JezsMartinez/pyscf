@@ -47,7 +47,7 @@ def fermi_smearing_mo_occ(e_f, mo_energy, tau, nelec=None):
 
     #if delta > 2.*sigma:
     #    occ[:nelec//2] = 1
-
+    
     if nelec is not None:
         occ = occ * nelec / numpy.sum(occ) / 2.
     return occ
