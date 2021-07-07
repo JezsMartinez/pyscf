@@ -669,22 +669,22 @@ def get_value_at_points_new(vemb_fft, points):
         vemb_fft: Embedding potential object from dftpy 
         points: np.array wit x,y,z GRID coordinates
         '''
-
     import scipy.ndimage as ndimage
     from scipy import interpolate
     if vemb_fft.field.spl_coeffs is None:
         vemb_fft.field._calc_spline()
         
-    nr=vemb_fft.field.grid.nr
+    nr=vemb_fft.field.grid.nr  #Shape of the Grid, Grid points for each direction. 
     gridf=vemb_fft.field.grid
-    ll=gridf.latparas[:]
+    ll=gridf.latparas[:] #Lattice Parameters
+    
     for i in range(3):
-        points[:,i] /= ll[i]
-        points[:,i] *= nr[i]
-        points[:,i] += 3
-    values = ndimage.map_coordinates(vemb_fft.field.spl_coeffs, [points[:, 0],
-                                        points[:, 1], points[:, 2]],
-                                        mode='wrap')
+        points[:,i] /= ll[i] #Divide each coordinate by the lattice parameters
+        points[:,i] *= nr[i] #Multiply each coordinate by the Grid points for each direction.
+    p2=(numpy.rint(points)).astype(int) #Round coordinates to the nearest integer
+    p2=numpy.mod(p2, vemb_fft.field.grid.nr) #arr1 % arr2 #Remainder of Div.
+    values=vemb_fft.field[p2[:,0],p2[:,1],p2[:,2]] #Getting the nearest point among the Grid and the Coord (The values of the field)
+
     return values
 
 def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
@@ -711,11 +711,11 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
         from dftpy.formats import io
         vemb_fft=io.read_system(filename)
     if mf.nelec[0] == mf.nelec[1]:
-        vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord))
+        vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
     else:
         vemb=numpy.empty((2,ex_grids_coord.shape[0]))
-        vemb[0] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord))
-        vemb[1] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord))
+        vemb[0] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
+        vemb[1] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
     return vemb
 
 def get_vemb_mu_nu(mf,vembf,ex_grids_coord,ex_grids_weights):
@@ -763,14 +763,17 @@ def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
     if mf.ext_spline:
         print("Using External Spline Values on a Custom Grid")
         if mf.nelec[0] == mf.nelec[1]:
-            vembf=spline_values
+            vembf=spline_values #Use a Numpy Array
+            #print(vembf[0])
         else:
             vembf=numpy.empty((2,ex_grids_coord.shape[0]))
             vembf[0]=spline_values
             vembf[1]=spline_values
+            #print(vembf[0][0],vembf[1][0])
     else:
         print("Using Spline Function on PySCF on a Custom Grid")
         vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
+    #print(vembf[0])
     mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u.
     return mat
 

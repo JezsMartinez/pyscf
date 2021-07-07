@@ -253,6 +253,7 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     if mf.vemb and cycle >0:
         mat = mf.vemb_mat()
         print("Initial: ",f[0][0][0])
+        #print(mat[0][0][0])
         f += mat
         print("Final: ", f[0][0][0])
     return numpy.array(f)
