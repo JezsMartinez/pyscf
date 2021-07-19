@@ -809,7 +809,11 @@ class _ChemistsERIs(ccsd._ChemistsERIs):
         #:PRG: 2021
         if mycc._scf.vemb:
             print("Initial fm ccsd: ",fockao[0][0][0])
-            mat = mycc._scf.vemb_mat()
+            if mycc._scf.vemb_m is not None:
+                mat = mycc._scf.vemb_m
+            else:
+                mat = mycc._scf.vemb_mat()
+            #print(mat[0][0][0])
             fockao += mat
             print("Final fm ccsd: ",fockao[0][0][0])
         #:PRG:

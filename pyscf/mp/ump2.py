@@ -483,7 +483,10 @@ class _ChemistsERIs(mp2._ChemistsERIs):
             #:PRG: 2021
             if mp._scf.vemb:
                 print("Initial fm mp2: ",fockao[0][0][0])
-                mat = mp._scf.vemb_mat()
+                if mp._scf.vemb_m is not None:
+                    mat = mp._scf.vemb_m
+                else:
+                    mat = mp._scf.vemb_mat()
                 #print(mat[0][0][0])
                 fockao += mat
                 print("Final fm mp2: ",fockao[0][0][0])

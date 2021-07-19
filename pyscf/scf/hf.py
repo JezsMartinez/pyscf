@@ -758,8 +758,7 @@ def get_vemb_mu_nu(mf,vembf,ex_grids_coord,ex_grids_weights):
     return mat
 
 def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
-    ''' Get the Embedding Potential in the MO basis'''
-    
+    ''' Get the Embedding Potential in the AO basis'''
     if mf.ext_spline:
         print("Using External Spline Values on a Custom Grid")
         if mf.nelec[0] == mf.nelec[1]:
@@ -771,13 +770,13 @@ def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
             vembf[1]=spline_values
             #print(vembf[0][0],vembf[1][0])
     else:
-        print("Using Spline Function on PySCF on a Custom Grid")
-        vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
+       print("Using Spline Function on PySCF on a Custom Grid")
+       vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
     #print(vembf[0])
-    mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u.
+    mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u. 
     return mat
 
-#END PRG contribution
+#END :PRG: contribution
 
 # eigenvalue of d is 1
 def level_shift(s, d, f, factor):
@@ -1082,7 +1081,10 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
         #f +=mf.static_dft(mo_occ=mo_occ,mo_coeff=mo_coeff,mo_energy=mo_energy)
         f +=mf.static_dft()
     if mf.vemb and cycle >0:
-        mat = mf.vemb_mat()
+        if mf.vemb_m is not None:
+            mat = mf.vemb_m
+        else:
+            mat = mf.vemb_mat()
         print("Initial: ",f[0][0][0])
         f += mat
         print("Final: ", f[0][0][0])
@@ -1559,8 +1561,8 @@ class SCF(lib.StreamObject):
         static : bool
             If True it performs self-consistent static-correlation DFT :PRG:
         vemb : bool
-            If True it add self-consistently Vemb (Embedding Potential) to 
-            fock0 matrix :PRG:
+            If True it add self-consistently Vemb (Embedding Potential) MAT to 
+            fock0 matrix. To maximaxe time of calculation MAT can be given :PRG:
         ext_spline : bool
             If True it takes the external spline values on a custom grid and 
             add it to fock0 matrix :PRG:
@@ -1622,10 +1624,11 @@ class SCF(lib.StreamObject):
         self.static = mol.static
         self.extemb = mol.extemb
         self.vemb = mol.vemb
-        self.ex_grids_coord = mol.ex_grids_coord
-        self.ex_grids_weights = mol.ex_grids_weights
+        self.ex_grids_coord = mol.ex_grids_coord  #External Coodinates of the Grid
+        self.ex_grids_weights = mol.ex_grids_weights #External weights of the Grid
         self.ext_spline = mol.ext_spline
-        self.spline_values = mol.spline_values
+        self.spline_values = mol.spline_values #External Emb Potential Spline into a Custom Grid
+        self.vemb_m = mol.vemb_m  # </mu|Vemb|/nu> Matrix
 
         # If chkfile is muted, SCF intermediates will not be dumped anywhere.
         if MUTE_CHKFILE:

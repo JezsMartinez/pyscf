@@ -2115,6 +2115,7 @@ class Mole(lib.StreamObject):
         self.ex_grids_weights = None
         self.ext_spline = None  #Bool
         self.spline_values = None
+        self.vemb_m = None
 # Nuclear property. self.nucprop = {atom_symbol: {key: value}}
         self.nucprop = {}
 ##################################################

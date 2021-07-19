@@ -251,7 +251,10 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
         f = (hf.level_shift(s1e, dm[0], f[0], shifta),
              hf.level_shift(s1e, dm[1], f[1], shiftb))
     if mf.vemb and cycle >0:
-        mat = mf.vemb_mat()
+        if mf.vemb_m is not None:
+            mat = mf.vemb_m
+        else:
+            mat = mf.vemb_mat()
         print("Initial: ",f[0][0][0])
         #print(mat[0][0][0])
         f += mat
