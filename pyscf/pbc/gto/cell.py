@@ -780,8 +780,7 @@ def ewald(cell, ew_eta=None, ew_cut=None):
     #   1/2 * 4\pi / Omega \sum_I \sum_{G\neq 0} |ZS_I(G)|^2 \exp[-|G|^2/4\eta^2]
     # where
     #   ZS_I(G) = \sum_a Z_a exp (i G.R_a)
-    # See also Eq. (32) of ewald.pdf at
-    #   http://www.fisica.uniud.it/~giannozz/public/ewald.pdf
+
     mesh = _cut_mesh_for_ewald(cell, cell.mesh)
     Gv, Gvbase, weights = cell.get_Gv_weights(mesh)
     absG2 = np.einsum('gi,gi->g', Gv, Gv)
@@ -999,7 +998,7 @@ def tot_electrons(cell, nkpts=1):
     '''
     if cell._nelectron is None:
         nelectron = cell.atom_charges().sum() * nkpts - cell.charge
-    else: # Custom cell.nelectron stands for num. electrons per unit cell
+    else: # Custom cell.nelectron stands for num. electrons per cell
         nelectron = cell._nelectron * nkpts
     # Round off to the nearest integer
     nelectron = int(nelectron+0.5)
@@ -1126,7 +1125,7 @@ class Cell(mole.Mole):
             nbeta = nalpha - self.spin
             if nalpha + nbeta != ne:
                 warnings.warn('Electron number %d and spin %d are not consistent '
-                              'in unit cell\n' % (ne, self.spin))
+                              'in cell\n' % (ne, self.spin))
             return nalpha, nbeta
 
     def __getattr__(self, key):
@@ -1198,7 +1197,7 @@ class Cell(mole.Mole):
 
         Kwargs:
             a : (3,3) ndarray
-                The real-space unit cell lattice vectors. Each row represents
+                The real-space cell lattice vectors. Each row represents
                 a lattice vector.
             mesh : (3,) ndarray of ints
                 The number of *positive* G-vectors along each direction.
