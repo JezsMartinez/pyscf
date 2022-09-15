@@ -98,11 +98,11 @@ class KnownValues(unittest.TestCase):
     def test_casscf_grad(self):
         mc = mcscf.CASSCF(mf, 4, 4).run()
         g1 = casscf_grad.Gradients(mc).kernel()
-        self.assertAlmostEqual(lib.fp(g1), -0.065094188906156134, 7)
+        self.assertAlmostEqual(lib.fp(g1), -0.065094188906156134, 6)
 
         g1ref = grad_elec(mc, mf.nuc_grad_method())
         g1ref += rhf_grad.grad_nuc(mol)
-        self.assertAlmostEqual(abs(g1-g1ref).max(), 0, 9)
+        self.assertAlmostEqual(abs(g1-g1ref).max(), 0, 7)
 
         mcs = mc.as_scanner()
         pmol = mol.copy()
@@ -126,8 +126,8 @@ class KnownValues(unittest.TestCase):
         mc = mcscf.CASSCF(mf, 4, 4)
         gs = mc.nuc_grad_method().as_scanner().as_scanner()
         e, g1 = gs(mol.atom, atmlst=range(4))
-        self.assertAlmostEqual(e, -108.39289688030243, 9)
-        self.assertAlmostEqual(lib.fp(g1), -0.065094188906156134, 7)
+        self.assertAlmostEqual(e, -108.39289688030243, 8)
+        self.assertAlmostEqual(lib.fp(g1), -0.065094188906156134, 6)
 
     def test_state_specific_scanner(self):
         mol = gto.M(atom='N 0 0 0; N 0 0 1.2', basis='631g', verbose=0)
@@ -173,12 +173,42 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(de_0[1,2], (e1_0-e2_0)/0.002*lib.param.BOHR, 4)
         self.assertAlmostEqual(de_1[1,2], (e1_1-e2_1)/0.002*lib.param.BOHR, 4)
 
+    def test_state_average_scanner_spin_penalty(self):
+        mc = mcscf.CASSCF(mf, 4, 4)
+        mc.conv_tol = 1e-10 # B/c high sensitivity in the numerical test
+        mc.fcisolver.conv_tol = 1e-10
+        mc.fix_spin_(ss=0)
+        gs = mc.state_average_([0.5, 0.5]).nuc_grad_method().as_scanner()
+        e_avg, de_avg = gs(mol)
+        e_0, de_0 = gs(mol, state=0)
+        e_1, de_1 = gs(mol, state=1)
+        mcs = gs.base
+        pmol = mol.copy()
+        mcs(pmol.set_geom_('N 0 0 0; N 0 0 1.201; H 1 1 0; H 1 1 1.2'))
+        e1_avg = mcs.e_average
+        e1_0 = mcs.e_states[0]
+        e1_1 = mcs.e_states[1]
+        mcs(pmol.set_geom_('N 0 0 0; N 0 0 1.199; H 1 1 0; H 1 1 1.2'))
+        e2_avg = mcs.e_average
+        e2_0 = mcs.e_states[0]
+        e2_1 = mcs.e_states[1]
+
+        self.assertAlmostEqual(e_avg, -1.0832566212162700e+02, 6)
+        self.assertAlmostEqual(lib.fp(de_avg), -1.0250043630625633e-01, 4)
+        self.assertAlmostEqual(e_0, -1.0837262409318993e+02, 6)
+        self.assertAlmostEqual(lib.fp(de_0), -1.5002188382934722e-01, 5)
+        self.assertAlmostEqual(e_1, -1.0827870015006400e+02, 6)
+        self.assertAlmostEqual(lib.fp(de_1), -5.4978564096385588e-02, 4)
+        self.assertAlmostEqual(de_avg[1,2], (e1_avg-e2_avg)/0.002*lib.param.BOHR, 4)
+        self.assertAlmostEqual(de_0[1,2], (e1_0-e2_0)/0.002*lib.param.BOHR, 4)
+        self.assertAlmostEqual(de_1[1,2], (e1_1-e2_1)/0.002*lib.param.BOHR, 4)
+
     def test_state_average_mix_scanner(self):
         mc = mcscf.CASSCF(mf, 4, 4)
         mc.conv_tol = 1e-10 # B/c high sensitivity in the numerical test
         fcisolvers = [fci.solver (mol, singlet=bool(i)) for i in range (2)]
         fcisolvers[0].conv_tol = fcisolvers[1].conv_tol = 1e-10
-        fcisolvers[0].spin = 2      
+        fcisolvers[0].spin = 2
         mc = mcscf.addons.state_average_mix_(mc, fcisolvers, (.5, .5))
         gs = mc.nuc_grad_method().as_scanner()
         e_avg, de_avg = gs(mol)
@@ -242,7 +272,7 @@ class KnownValues(unittest.TestCase):
                  H                 -0.00000000   -0.84695236    0.59109389
                  H                 -0.00000000    0.89830571    0.52404783 ''')
         ref = (e1 - e2)/0.002 * lib.param.BOHR
-        self.assertAlmostEqual(g[0,0], ref, 4)
+        self.assertAlmostEqual(g[0,0], ref, 5)
 
         mf = scf.RHF(mol)
         mc = qmmm.add_mm_charges(mcscf.CASSCF(mf, 4, 4).as_scanner(), coords, charges)
