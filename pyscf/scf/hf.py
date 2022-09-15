@@ -647,7 +647,7 @@ def static_dft(mf, s, mo_energy, mo_occ, mo_coeff, option=2):
         New Fock matrix, 2D ndarray
     '''
 
-    def static_potential(mf, mo_occ, mo_energy, option=2):
+    def static_potential(mf, mo_occ, mo_energy, option=None, alpha=None):
         # Static correlation potential
         # Define as the product among the partial derivative of Ecstatic respect to mo_occ, the partial derivative of mo_occ respect to mo_energy, the mo_energy and mo_occ
         #Here is the code
@@ -668,8 +668,20 @@ def static_dft(mf, s, mo_energy, mo_occ, mo_coeff, option=2):
         p = exp_neg_beta_delta / ( 1.0 + exp_neg_beta_delta) # Equation 5, file=notes
         dpde = - beta * exp_neg_beta_delta / ( 1.0 + exp_neg_beta_delta ) / ( 1.0 + exp_neg_beta_delta)
 
-        if option == 1:
-            dEdp = beta * numpy.where(p < 0.5, -1.0 / (1.0 - p), numpy.where(p > 0.5, 1.0 / p, 0)) 
+        if mf.mol.option == 1 and mf.mol.alpha is None:
+            dEdp = beta * numpy.where(p < 0.5, -1.0 / (1.0 - p), numpy.where(p > 0.5, 1.0 / p, 0))
+        elif mf.mol.option == 1 and mf.mol.alpha is not None:
+            def dedp_1(p=None):
+                b = (p-1.0)*(1.0/mf.mol.alpha)*(numpy.log((1.0-p)/p)**((1.0/mf.mol.alpha)-1.0))
+                c = (p/(1.0-p))*((-1.0/p)-((1.0-p)/p**2.0))
+                return b*c
+            def dedp_2(p=None):
+                b = (p)*(1.0/mf.mol.alpha)*(numpy.log((1.0-p)/p)**((1.0/mf.mol.alpha)-1.0))
+                c = (p/(1.0-p))*((-1.0/p)-((1.0-p)/p**2.0))
+                return b*c
+            a = ((kb * mf.mol.tau))**(1.0/mf.mol.alpha)
+            dEdp = -a * numpy.where(p < 0.5, dedp_1(p=p), numpy.where(p > 0.5, dedp_2(p=p), 0))
+            print(dEdp)
         else:
             dEdp = beta * (numpy.log(p) - numpy.log(1-p))
 
@@ -677,7 +689,7 @@ def static_dft(mf, s, mo_energy, mo_occ, mo_coeff, option=2):
 
         return v_c_static
 
-    vcs = static_potential(mf, mo_occ, mo_energy, option=2)
+    vcs = static_potential(mf, mo_occ, mo_energy, option=mf.mol.option)
     d = mf.make_rdm1(mo_coeff,vcs)
     F_static = reduce(numpy.dot, (s, d, s))
     return F_static
