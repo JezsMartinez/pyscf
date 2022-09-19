@@ -669,8 +669,10 @@ def static_dft(mf, s, mo_energy, mo_occ, mo_coeff, option=2):
         dpde = - beta * exp_neg_beta_delta / ( 1.0 + exp_neg_beta_delta ) / ( 1.0 + exp_neg_beta_delta)
 
         if mf.mol.option == 1 and mf.mol.alpha is None:
+            print("Option 1 (Eq. 16)")
             dEdp = beta * numpy.where(p < 0.5, -1.0 / (1.0 - p), numpy.where(p > 0.5, 1.0 / p, 0))
         elif mf.mol.option == 1 and mf.mol.alpha is not None:
+            print("Option 1 (Eq. 15)")
             def dedp_1(p=None):
                 b = (p-1.0)*(1.0/mf.mol.alpha)*(numpy.log((1.0-p)/p)**((1.0/mf.mol.alpha)-1.0))
                 c = (p/(1.0-p))*((-1.0/p)-((1.0-p)/p**2.0))
@@ -681,8 +683,8 @@ def static_dft(mf, s, mo_energy, mo_occ, mo_coeff, option=2):
                 return b*c
             a = ((kb * mf.mol.tau))**(1.0/mf.mol.alpha)
             dEdp = -a * numpy.where(p < 0.5, dedp_1(p=p), numpy.where(p > 0.5, dedp_2(p=p), 0))
-            print(dEdp)
         else:
+            print("Option 2 (Eq. 18)")
             dEdp = beta * (numpy.log(p) - numpy.log(1-p))
 
         v_c_static = dEdp * dpde * mo_energy
@@ -1130,6 +1132,7 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
         f = level_shift(s1e, dm*.5, f, level_shift_factor)
     #:PRG:
     if mf.static and cycle >0:
+        print('static to SCF')
         #f +=mf.static_dft(mo_occ=mo_occ,mo_coeff=mo_coeff,mo_energy=mo_energy)
         f +=mf.static_dft()
     if mf.vemb and cycle >0:
