@@ -674,15 +674,20 @@ def static_dft(mf, s, mo_energy, mo_occ, mo_coeff, option=2):
         elif mf.mol.option == 1 and mf.mol.alpha is not None:
             print("Option 1 (Eq. 15)")
             def dedp_1(p=None):
-                b = (p-1.0)*(1.0/mf.mol.alpha)*(numpy.log((1.0-p)/p)**((1.0/mf.mol.alpha)-1.0))
-                c = (p/(1.0-p))*((-1.0/p)-((1.0-p)/p**2.0))
-                return b*c
+                #b = (p-1.0)*(1.0/mf.mol.alpha)*(numpy.log((1.0-p)/p)**((1.0/mf.mol.alpha)-1.0))
+                #c = (p/(1.0-p))*((-1.0/p)-((1.0-p)/p**2.0))
+                c=(1.0/(1-p))*(numpy.log((1-p/p)))**((1/mf.mol.alpha)-1)
+                return c
             def dedp_2(p=None):
-                b = (p)*(1.0/mf.mol.alpha)*(numpy.log((1.0-p)/p)**((1.0/mf.mol.alpha)-1.0))
-                c = (p/(1.0-p))*((-1.0/p)-((1.0-p)/p**2.0))
-                return b*c
-            a = ((kb * mf.mol.tau))**(1.0/mf.mol.alpha)
-            dEdp = -a * numpy.where(p < 0.5, dedp_1(p=p), numpy.where(p > 0.5, dedp_2(p=p), 0))
+                #b = (p)*(1.0/mf.mol.alpha)*(numpy.log((1.0-p)/p)**((1.0/mf.mol.alpha)-1.0))
+                #c = (p/(1.0-p))*((-1.0/p)-((1.0-p)/p**2.0))
+                c=-(1.0/p)*(numpy.log((1-p/p)))**((1/mf.mol.alpha)-1)
+                return c
+            #a = ((kb * mf.mol.tau))**(1.0/mf.mol.alpha)
+            #dEdp = -a * numpy.where(p < 0.5, dedp_1(p=p), numpy.where(p > 0.5, dedp_2(p=p), 0))
+            a=(beta/delta)**(1/mf.mol.alpha)
+            b=numpy.sum(delta*a)
+            dEdp = (1/mf.mol.alpha) * b * numpy.where(p < 0.5, dedp_1(p=p), numpy.where(p > 0.5, dedp_2(p=p), 0))
         else:
             print("Option 2 (Eq. 18)")
             dEdp = beta * (numpy.log(p) - numpy.log(1-p))
@@ -705,19 +710,34 @@ def get_value_at_points_new(vemb_fft, points):
         '''
     import scipy.ndimage as ndimage
     from scipy import interpolate
-    if vemb_fft.field.spl_coeffs is None:
-        vemb_fft.field._calc_spline()
-        
-    nr=vemb_fft.field.grid.nr  #Shape of the Grid, Grid points for each direction. 
-    gridf=vemb_fft.field.grid
-    ll=gridf.latparas[:] #Lattice Parameters
+#    if vemb_fft.field.spl_coeffs is None:
+#        vemb_fft.field._calc_spline()
+#        
+#    nr=vemb_fft.field.grid.nr  #Shape of the Grid, Grid points for each direction. 
+#    gridf=vemb_fft.field.grid
+#    ll=gridf.latparas[:] #Lattice Parameters
+#    
+#    for i in range(3):
+#        points[:,i] /= ll[i] #Divide each coordinate by the lattice parameters
+#        points[:,i] *= nr[i] #Multiply each coordinate by the Grid points for each direction.
+#    p2=(numpy.rint(points)).astype(int) #Round coordinates to the nearest integer
+#    p2=numpy.mod(p2, vemb_fft.field.grid.nr) #arr1 % arr2 #Remainder of Div.
+#    values=vemb_fft.field[p2[:,0],p2[:,1],p2[:,2]] #Getting the nearest point among the Grid and the Coord (The values of the field)
+
+    if vemb_fft.spl_coeffs is None:
+        vemb_fft._calc_spline()
+    nr=vemb_fft.grid.nr  #Shape of the Grid, Grid points for each direction. 
+    gridf=vemb_fft.grid
     
+    metric = numpy.dot(gridf.lattice, gridf.lattice.T)
+    ll = numpy.sqrt(numpy.diag(metric))
+
     for i in range(3):
         points[:,i] /= ll[i] #Divide each coordinate by the lattice parameters
         points[:,i] *= nr[i] #Multiply each coordinate by the Grid points for each direction.
     p2=(numpy.rint(points)).astype(int) #Round coordinates to the nearest integer
-    p2=numpy.mod(p2, vemb_fft.field.grid.nr) #arr1 % arr2 #Remainder of Div.
-    values=vemb_fft.field[p2[:,0],p2[:,1],p2[:,2]] #Getting the nearest point among the Grid and the Coord (The values of the field)
+    p2=numpy.mod(p2, vemb_fft.grid.nr) #arr1 % arr2 #Remainder of Div.
+    values=vemb_fft[p2[:,0],p2[:,1],p2[:,2]] #Getting the nearest point among the Grid and the Coord (The values of the field)
 
     return values
 
@@ -737,13 +757,14 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
     '''
     
     if ".pp" in filename:
-        format='pp'
+        format='qepp'
     else:
         raise Exception("Only PP format available for V_emb.")
     
-    if format=='pp':
+    if format=='qepp':
         from dftpy.formats import io
-        vemb_fft=io.read_system(filename)
+        #vemb_fft=io.read_system(filename)
+        ions,vemb_fft,cutoffvars=io.read(filename)
     if mf.nelec[0] == mf.nelec[1]:
         vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
     else:
