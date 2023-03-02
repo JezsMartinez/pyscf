@@ -710,19 +710,6 @@ def get_value_at_points_new(vemb_fft, points):
         '''
     import scipy.ndimage as ndimage
     from scipy import interpolate
-#    if vemb_fft.field.spl_coeffs is None:
-#        vemb_fft.field._calc_spline()
-#        
-#    nr=vemb_fft.field.grid.nr  #Shape of the Grid, Grid points for each direction. 
-#    gridf=vemb_fft.field.grid
-#    ll=gridf.latparas[:] #Lattice Parameters
-#    
-#    for i in range(3):
-#        points[:,i] /= ll[i] #Divide each coordinate by the lattice parameters
-#        points[:,i] *= nr[i] #Multiply each coordinate by the Grid points for each direction.
-#    p2=(numpy.rint(points)).astype(int) #Round coordinates to the nearest integer
-#    p2=numpy.mod(p2, vemb_fft.field.grid.nr) #arr1 % arr2 #Remainder of Div.
-#    values=vemb_fft.field[p2[:,0],p2[:,1],p2[:,2]] #Getting the nearest point among the Grid and the Coord (The values of the field)
 
     if vemb_fft.spl_coeffs is None:
         vemb_fft._calc_spline()
@@ -763,9 +750,7 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
     
     if format=='qepp':
         from dftpy.formats import io
-        #vemb_fft=io.read_system(filename)
-        vemb_fft=io.read(filename,format='qepp')
-        #ions,vemb_fft,cutoffvars=io.read(filename)
+        ions,vemb_fft,cutoffvars=io.read(filename,kind='field')
     if mf.nelec[0] == mf.nelec[1]:
         vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
     else:
