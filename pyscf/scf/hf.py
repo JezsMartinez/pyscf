@@ -153,12 +153,6 @@ Keyword argument "init_dm" is replaced by "dm0"''')
         mf_diis = mf.DIIS(mf, mf.diis_file)
         mf_diis.space = mf.diis_space
         mf_diis.rollback = mf.diis_space_rollback
-
-        # We get the used orthonormalized AO basis from any old eigendecomposition.
-        # Since the ingredients for the Fock matrix has already been built, we can
-        # just go ahead and use it to determine the orthonormal basis vectors.
-        fock = mf.get_fock(h1e, s1e, vhf, dm)
-        _, mf_diis.Corth = mf.eig(fock, s1e)
     else:
         mf_diis = None
 
@@ -770,7 +764,8 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
     if format=='qepp':
         from dftpy.formats import io
         #vemb_fft=io.read_system(filename)
-        ions,vemb_fft,cutoffvars=io.read(filename)
+        vemb_fft=io.read(filename,format='qepp')
+        #ions,vemb_fft,cutoffvars=io.read(filename)
     if mf.nelec[0] == mf.nelec[1]:
         vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
     else:
@@ -835,7 +830,7 @@ def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
        vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
     #print(vembf[0])
     mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u. 
-    return mat
+    return mat,vembf
 
 #END :PRG: contribution
 
@@ -1460,7 +1455,7 @@ def dip_moment(mol, dm, unit='Debye', verbose=logger.NOTE, **kwargs):
         unit = kwargs['unit_symbol']
 
     if not (isinstance(dm, numpy.ndarray) and dm.ndim == 2):
-        # UHF density matrices
+        # UHF denisty matrices
         dm = dm[0] + dm[1]
 
     with mol.with_common_orig((0,0,0)):
@@ -1676,7 +1671,7 @@ class SCF(lib.StreamObject):
     max_cycle = getattr(__config__, 'scf_hf_SCF_max_cycle', 50)
     init_guess = getattr(__config__, 'scf_hf_SCF_init_guess', 'minao')
 
-    # To avoid diis pollution from previous run, self.diis should not be
+    # To avoid diis pollution form previous run, self.diis should not be
     # initialized as DIIS instance here
     DIIS = diis.SCF_DIIS
     diis = getattr(__config__, 'scf_hf_SCF_diis', True)
@@ -1684,7 +1679,8 @@ class SCF(lib.StreamObject):
     # need > 0 if initial DM is numpy.zeros array
     diis_start_cycle = getattr(__config__, 'scf_hf_SCF_diis_start_cycle', 1)
     diis_file = None
-    diis_space_rollback = 0
+    # Give diis_space_rollback=True a trial if all other methods do not converge
+    diis_space_rollback = False
 
     damp = getattr(__config__, 'scf_hf_SCF_damp', 0)
     level_shift = getattr(__config__, 'scf_hf_SCF_level_shift', 0)
