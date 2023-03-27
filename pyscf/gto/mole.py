@@ -916,11 +916,15 @@ def make_atm_env(atom, ptr=0, nuclear_model=NUC_POINT, nucprop={}):
 def make_bas_env(basis_add, atom_id=0, ptr=0):
     '''Convert :attr:`Mole.basis` to the argument ``bas`` for ``libcint`` integrals
     '''
+    # First sort basis accroding to l. This is important for method
+    # decontract_basis, which assumes that basis functions with the same angular
+    # momentum are grouped together
+    basis_add = [b for b in basis_add if b]
+    basis_add = sorted(basis_add, key=lambda b: b[0])
+
     _bas = []
     _env = []
     for b in basis_add:
-        if not b:  # == []
-            continue
         angl = b[0]
         if angl > 14:
             sys.stderr.write('Warning: integral library does not support basis '
@@ -1238,6 +1242,8 @@ def loads(molstr):
     mol._env = numpy.array(mol._env, dtype=numpy.double)
     mol._ecpbas = numpy.array(mol._ecpbas, dtype=numpy.int32)
 
+    # Objects related to symmetry cannot be serialized by dumps function.
+    # Recreate it manually
     if mol.symmetry and mol._symm_orig is not None:
         from pyscf import symm
         mol._symm_orig = numpy.array(mol._symm_orig)
@@ -1514,7 +1520,7 @@ def sph_labels(mol, fmt=True, base=BASE):
         if nelec_ecp == 0 or l > 3:
             shl_start = count[ia,l]+l+1
         else:
-            coreshl = core_configuration(nelec_ecp)
+            coreshl = core_configuration(nelec_ecp, atom_symbol=symb)
             shl_start = coreshl[l]+count[ia,l]+l+1
         count[ia,l] += nc
         for n in range(shl_start, shl_start+nc):
