@@ -81,6 +81,16 @@ def smearing_(mf, sigma=None, method=SMEARING_METHOD, mu0=None, fix_spin=False):
         return occ
     def gaussian_smearing_occ(m, mo_energy_kpts, sigma):
         return 0.5 * scipy.special.erfc((mo_energy_kpts - m) / sigma)
+    def linear_smearing_occ(m, mo_energy_kpts, sigma):
+        de = mo_energy_kpts - m
+        occ = numpy.zeros_like(de)
+        mask = (de < sigma) & (de > 0)
+        occ[mask] = (sigma-de[mask])**2/2/sigma**2
+        mask = (de > -sigma) & (de < 1E-10)
+        occ[mask] = 1.0-(de[mask]+sigma)**2/2/sigma**2
+        occ[de <= -sigma] = 1.0
+        occ[de >= sigma] = 0.0
+        return occ
 
     def partition_occ(mo_occ, mo_energy_kpts):
         mo_occ_kpts = []
@@ -137,6 +147,8 @@ def smearing_(mf, sigma=None, method=SMEARING_METHOD, mu0=None, fix_spin=False):
 
         if mf.smearing_method.lower() == 'fermi':  # Fermi-Dirac smearing
             f_occ = fermi_smearing_occ
+        elif mf.smearing_method.lower() == 'linear':  # Linear smearing
+            f_occ = linear_smearing_occ
         else:  # Gaussian smearing
             f_occ = gaussian_smearing_occ
 
