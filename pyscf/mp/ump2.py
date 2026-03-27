@@ -533,6 +533,17 @@ class _ChemistsERIs(mp2._ChemistsERIs):
             dm = mp._scf.make_rdm1(mo_coeff, mp.mo_occ)
             vhf = mp._scf.get_veff(mp.mol, dm)
             fockao = mp._scf.get_fock(vhf=vhf, dm=dm)
+            #:PRG:
+            if mp._scf.vemb:
+#                print("Initial fm mp2: ",fockao[0][0][0])
+                if mp._scf.vemb_m is not None:
+                    mat = mp._scf.vemb_m
+                else:
+                    mat = mp._scf.vemb_mat()
+                #print(mat[0][0][0])
+                fockao += mat 
+#                print("Final fm mp2: ",fockao[0][0][0])
+            #:PRG:
             focka = mo_a.conj().T.dot(fockao[0]).dot(mo_a)
             fockb = mo_b.conj().T.dot(fockao[1]).dot(mo_b)
             self.fock = (focka, fockb)

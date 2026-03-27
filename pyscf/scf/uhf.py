@@ -279,6 +279,14 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     if abs(shifta)+abs(shiftb) > 1e-4:
         f = (hf.level_shift(s1e, dm[0], f[0], shifta),
              hf.level_shift(s1e, dm[1], f[1], shiftb))
+    #:PRG:
+    if mf.vemb and cycle >0:
+        if mf.vemb_m is not None:
+            mat = mf.vemb_m
+        else:
+            mat = mf.vemb_mat()
+        f += mat
+    
     return numpy.array(f)
 
 def get_occ(mf, mo_energy=None, mo_coeff=None):
@@ -785,6 +793,7 @@ class UHF(hf.SCF):
         # self.mo_occ => [mo_occ_a, mo_occ_b]
         # self.mo_energy => [mo_energy_a, mo_energy_b]
         self.nelec = None
+        # PRG 2021
 
     @property
     def nelec(self):

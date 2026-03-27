@@ -2339,6 +2339,14 @@ class MoleBase(lib.StreamObject):
         self.ecp = {}
         # Nuclear property. self.nucprop = {atom_symbol: {key: value}}
         self.nucprop = {}
+        # self.external_embedding_potential -- :PRG: 2026
+        self.extemb = None 
+        self.vemb = None    #Bool
+        self.ex_grids_coord = None 
+        self.ex_grids_weights = None 
+        self.ext_spline = None  #Bool
+        self.spline_values = None 
+        self.vemb_m = None 
         # Collinear spin of each atom. self.magmom = [0, ...]
         self.magmom = []
         self.pseudo = None

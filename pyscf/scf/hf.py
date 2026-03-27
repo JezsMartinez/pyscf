@@ -762,6 +762,127 @@ def get_init_guess(mol, key='minao', **kwargs):
     return RHF(mol).get_init_guess(mol, key, **kwargs)
 
 
+###################:PRG:
+
+def get_value_at_points_new(vemb_fft, points):
+    '''Get values of an Embedding Potential into and External Grid
+
+    Kwargs:
+        vemb_fft: Embedding potential object from dftpy 
+        points: np.array wit x,y,z GRID coordinates
+        '''
+    import scipy.ndimage as ndimage
+    from scipy import interpolate
+
+    if vemb_fft.spl_coeffs is None:
+        vemb_fft._calc_spline()
+    nr=vemb_fft.grid.nr  #Shape of the Grid, Grid points for each direction. 
+    gridf=vemb_fft.grid
+
+    metric = numpy.dot(gridf.lattice, gridf.lattice.T)
+    ll = numpy.sqrt(numpy.diag(metric))
+
+    for i in range(3):
+        points[:,i] /= ll[i] #Divide each coordinate by the lattice parameters
+        points[:,i] *= nr[i] #Multiply each coordinate by the Grid points for each direction.
+    p2=(numpy.rint(points)).astype(int) #Round coordinates to the nearest integer
+    p2=numpy.mod(p2, vemb_fft.grid.nr) #arr1 % arr2 #Remainder of Div.
+    values=vemb_fft[p2[:,0],p2[:,1],p2[:,2]] #Getting the nearest point among the Grid and the Coord (The values of the field)
+
+    return values
+
+def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
+    '''
+    Function to spline a field on a regular FFT grid to a 
+    custom grid.
+    
+    INPUT:
+    mf: SCF class of PySCF
+    points: np.array wit x,y,z GRID coordinates
+    filename: External Embedding Potential
+    
+    OUTPUT:
+    vemb: numpy array of shape len(mf_grids_coord[:,0])
+    
+    '''
+
+    if ".pp" in filename:
+        format='qepp'
+    else:
+        raise Exception("Only PP format available for V_emb.")
+
+    if format=='qepp':
+        from dftpy.formats import io
+        ions,vemb_fft,cutoffvars=io.read(filename,kind='field')
+    if mf.nelec[0] == mf.nelec[1]:
+        vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
+    else:
+        vemb=numpy.empty((2,ex_grids_coord.shape[0]))
+        vemb[0] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
+        vemb[1] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
+    return vemb
+
+def get_vemb_mu_nu(mf,vembf,ex_grids_coord,ex_grids_weights):
+    '''
+    Function returns the <mu|vemb|nu> matrix where vemb is a function on pyscf's dft grid.
+    
+    INPUT:
+    mf: PySCF SCF class
+    vemb: numpy array of size (nspin,nao,nao)
+    
+    '''
+    from pyscf.dft.numint import eval_ao, _scale_ao, _dot_ao_ao
+    from pyscf.dft.gen_grid import BLKSIZE
+
+    ao=eval_ao(mf.mol,ex_grids_coord,deriv=0)
+    ngrids, nao = ao.shape
+    nspin=numpy.shape(mf.nelec)[0]
+    non0tab = numpy.ones(((ngrids+BLKSIZE-1)//BLKSIZE,mf.mol.nbas),dtype=numpy.uint8)
+    shls_slice = (0, mf.mol.nbas)
+    ao_loc = mf.mol.ao_loc_nr()
+    aow=numpy.empty((nspin,numpy.shape(ex_grids_coord[:,0])[0],nao))
+    mat=numpy.empty((nspin,nao,nao))
+
+    if mf.nelec[0] == mf.nelec[1]:
+        # *.5 because vmat + vmat.T
+        aow[0] = _scale_ao(ao, .5*ex_grids_weights*vembf, out=aow[0])
+        aow[1]=aow[0]
+
+        mat[0] = _dot_ao_ao(mf.mol, ao, aow[0], non0tab, shls_slice, ao_loc)
+        mat[1] = mat[0]
+
+    else:
+        aow[0] = _scale_ao(ao, .5*ex_grids_weights*vembf[0], out=aow[0])
+        aow[1] = _scale_ao(ao, .5*ex_grids_weights*vembf[1], out=aow[1])
+        mat[0] = _dot_ao_ao(mf.mol, ao, aow[0], non0tab, shls_slice, ao_loc)
+        mat[1] = _dot_ao_ao(mf.mol, ao, aow[1], non0tab, shls_slice, ao_loc)
+
+    mat[0] = mat[0] + mat[0].T.conj()
+    mat[1] = mat[1] + mat[1].T.conj()
+    return mat
+
+
+def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
+    ''' Get the Embedding Potential in the AO basis'''
+    if mf.ext_spline:
+        print("Using External Spline Values on a Custom Grid")
+        if mf.nelec[0] == mf.nelec[1]:
+            vembf=spline_values #Use a Numpy Array
+            #print(vembf[0])
+        else:
+            vembf=numpy.empty((2,ex_grids_coord.shape[0]))
+            vembf[0]=spline_values
+            vembf[1]=spline_values
+            #print(vembf[0][0],vembf[1][0])
+    else:
+       print("Using Spline Function on PySCF on a Custom Grid")
+       vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
+    #print(vembf[0])
+    mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u. 
+    return mat,vembf
+
+#END :PRG: contribution
+
 # eigenvalue of d is 1
 def level_shift(s, d, f, factor):
     r'''Apply level shift :math:`\Delta` to virtual orbitals
@@ -1724,6 +1845,15 @@ class SCF(lib.StreamObject):
         self.max_memory = mol.max_memory
         self.stdout = mol.stdout
 
+        # PRG 2021
+        self.extemb = mol.extemb
+        self.vemb = mol.vemb
+        self.ex_grids_coord = mol.ex_grids_coord  #External Coodinates of the Grid
+        self.ex_grids_weights = mol.ex_grids_weights #External weights of the Grid
+        self.ext_spline = mol.ext_spline
+        self.spline_values = mol.spline_values #External Emb Potential Spline into a Custom Grid
+        self.vemb_m = mol.vemb_m  # </mu|Vemb|/nu> Matrix
+
         # If chkfile is muted, SCF intermediates will not be dumped anywhere.
         if MUTE_CHKFILE:
             self.chkfile = None
@@ -1986,6 +2116,17 @@ This is the Gaussian fit version as described in doi:10.1063/5.0004046.''')
     #   f(envs) => bool
     # to check_convergence can overwrite the default convergence criteria
     check_convergence = None
+
+    def vemb_mat(self,mol=None,extemb=None,spline_values=None,ex_grids_coord=None,ex_grids_weights=None):
+
+        if mol is None: mol = self.mol
+
+        if self.ext_spline is True and spline_values is None: spline_values=mol.spline_values
+        if self.ext_spline is None and extemb is None: extemb=mol.extemb
+
+        if ex_grids_coord is None: ex_grids_coord=mol.ex_grids_coord
+        if ex_grids_weights is None: ex_grids_weights=mol.ex_grids_weights
+        return vemb_mat(self,extemb,spline_values,ex_grids_coord,ex_grids_weights)
 
     def scf(self, dm0=None, **kwargs):
         '''SCF main driver
@@ -2499,3 +2640,4 @@ def _hf1e_scf(mf, *args):
 
 
 del (WITH_META_LOWDIN, PRE_ORTH_METHOD)
+
