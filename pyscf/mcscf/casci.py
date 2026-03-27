@@ -319,7 +319,6 @@ def cas_natorb(mc, mo_coeff=None, ci=None, eris=None, sort=False,
     # inactive orbitals, the 0th order Hamiltonian of MRPT methods can be
     # strongly affected. Numerical uncertainty may be found in the perturbed
     # correlation energy.
-    # See issue https://github.com/pyscf/pyscf/issues/1041
     occ2_idx = numpy.where(2 - cas_occ < FRAC_OCC_THRESHOLD)[0]
     occ0_idx = numpy.where(cas_occ < FRAC_OCC_THRESHOLD)[0]
     if occ2_idx.size > 0 or occ0_idx.size > 0:
@@ -570,7 +569,7 @@ def kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None):
         mo_coeff : ndarray
             orbitals to construct active space Hamiltonian
         ci0 : ndarray or custom types
-            FCI sovler initial guess. For external FCI-like solvers, it can be
+            FCI solver initial guess. For external FCI-like solvers, it can be
             overloaded different data type. For example, in the state-average
             FCI solver, ci0 is a list of ndarray. In other solvers such as
             DMRGCI solver, SHCI solver, ci0 are custom types.
@@ -837,7 +836,7 @@ class CASBase(lib.StreamObject):
     def dump_flags(self, verbose=None):
         log = logger.new_logger(self, verbose)
         log.info('')
-        log.info('******** CASCI flags ********')
+        log.info('******** %s ********', self.__class__)
         ncore = self.ncore
         ncas = self.ncas
         nvir = self.mo_coeff.shape[1] - ncore - ncas
@@ -850,7 +849,8 @@ class CASBase(lib.StreamObject):
         log.info('natorb = %s', self.natorb)
         log.info('canonicalization = %s', self.canonicalization)
         log.info('sorting_mo_energy = %s', self.sorting_mo_energy)
-        log.info('max_memory %d (MB)', self.max_memory)
+        log.info('max_memory %d MB (current use %d MB)',
+                 self.max_memory, lib.current_memory()[0])
         if getattr(self.fcisolver, 'dump_flags', None):
             self.fcisolver.dump_flags(log.verbose)
         if self.mo_coeff is None:
@@ -1023,6 +1023,13 @@ To enable the solvent model for CASCI, the following code needs to be called
     @lib.with_doc(addons.state_average.__doc__)
     def state_average(self, weights=(0.5,0.5), wfnsym=None):
         return addons.state_average(self, weights, wfnsym)
+
+    def state_average_mix(self, fcisolvers=None, weights=(0.5, 0.5)):
+        return addons.state_average_mix(self, fcisolvers, weights)
+
+    def state_average_mix_(self, fcisolvers=None, weights=(0.5, 0.5)):
+        addons.state_average_mix_(self, fcisolvers, weights)
+        return self
 
     @lib.with_doc(addons.state_specific_.__doc__)
     def state_specific_(self, state=1):

@@ -554,7 +554,10 @@ class HessianBase(lib.StreamObject):
         return hess_nuc(mol, atmlst)
 
     def kernel(self, mo_energy=None, mo_coeff=None, mo_occ=None, atmlst=None):
-        if mo_energy is None: mo_energy = self.base.mo_energy
+        if mo_energy is None:
+            if self.base.mo_energy is None:
+                self.base.run()
+            mo_energy = self.base.mo_energy
         if mo_coeff is None: mo_coeff = self.base.mo_coeff
         if mo_occ is None: mo_occ = self.base.mo_occ
         if atmlst is None:
@@ -572,13 +575,7 @@ class HessianBase(lib.StreamObject):
     gen_hop = gen_hop
 
     # to_gpu can be reused only when __init__ still takes mf
-    def to_gpu(self):
-        mf = self.base.to_gpu()
-        from importlib import import_module
-        mod = import_module(self.__module__.replace('pyscf', 'gpu4pyscf'))
-        cls = getattr(mod, self.__class__.__name__)
-        obj = cls(mf)
-        return obj
+    to_gpu = lib.to_gpu
 
 class Hessian(HessianBase):
 

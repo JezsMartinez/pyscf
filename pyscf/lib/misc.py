@@ -91,6 +91,7 @@ c_double_p = ctypes.POINTER(ctypes.c_double)
 c_int_p = ctypes.POINTER(ctypes.c_int)
 c_null_ptr = ctypes.POINTER(ctypes.c_void_p)
 
+@functools.lru_cache(128)
 def load_library(libname):
     try:
         _loaderpath = os.path.dirname(__file__)
@@ -697,6 +698,12 @@ class StreamObject:
 
     __getstate__, __setstate__ = generate_pickle_methods()
 
+    def reset(self):
+        '''
+        Clean up intermediates
+        '''
+        raise NotImplementedError
+
 
 _warn_once_registry = {}
 def check_sanity(obj, keysref, stdout=sys.stdout):
@@ -870,10 +877,7 @@ def invalid_method(name):
     fn.__name__ = name
     return fn
 
-@functools.lru_cache(None)
-def _define_class(name, bases):
-    return type(name, bases, {})
-
+_registered_classes = {}
 def make_class(bases, name=None, attrs=None):
     '''
     Construct a class
@@ -883,14 +887,17 @@ def make_class(bases, name=None, attrs=None):
         class {name}(*bases):
             __dict__ = attrs
     '''
+    _registered_classes
     if name is None:
         name = ''.join(getattr(x, '__name_mixin__', x.__name__) for x in bases)
 
-    cls = _define_class(name, bases)
-    cls.__name_mixin__ = name
-    if attrs is not None:
-        for key, val in attrs.items():
-            setattr(cls, key, val)
+    cls = _registered_classes.get((name, bases))
+    if cls is None:
+        if attrs is None:
+            attrs = {}
+        cls = type(name, bases, attrs)
+        cls.__name_mixin__ = name
+        _registered_classes[name, bases] = cls
     return cls
 
 def set_class(obj, bases, name=None, attrs=None):
@@ -929,7 +936,8 @@ def drop_class(cls, base_cls, name_mixin=None):
 
     # rebuild the dynamic_mixin class
     attrs = {**cls.__dict__, '__name_mixin__': cls_name}
-    cls_undressed = type(cls_name, tuple(filter_bases), attrs)
+    cls_undressed = make_class(tuple(filter_bases), cls_name, attrs)
+    cls_undressed.__module__ = cls.__module__
     return cls_undressed
 
 def replace_class(cls, old_cls, new_cls):
@@ -951,7 +959,9 @@ def replace_class(cls, old_cls, new_cls):
 
     name = cls.__name__.replace(old_cls.__name__, new_cls.__name__)
     attrs = {**cls.__dict__, '__name_mixin__': name}
-    return type(name, tuple(bases), attrs)
+    _cls = make_class(tuple(bases), name, attrs)
+    _cls.__module__ = cls.__module__
+    return _cls
 
 def overwrite_mro(obj, mro):
     '''A hacky function to overwrite the __mro__ attribute'''
@@ -1206,8 +1216,9 @@ class H5TmpFile(H5FileWrap):
     >>> ftmp = lib.H5TmpFile()
     '''
     def __init__(self, filename=None, mode='a', prefix='', suffix='',
-                 dir=param.TMPDIR, *args, **kwargs):
+                 dir=None, *args, **kwargs):
         self.delete_on_close = False
+        dir = dir or param.TMPDIR
         if filename is None:
             filename = H5TmpFile._gen_unique_name(dir, pre=prefix, suf=suffix)
             self.delete_on_close = True
@@ -1500,7 +1511,10 @@ omniobj.base = omniobj
 omniobj.precision = 1e-8 # utilized by several pbc modules
 
 # Attributes that are kept in np.ndarray during the to_gpu conversion
-_ATTRIBUTES_IN_NPARRAY = {'kpt', 'kpts', 'kpts_band', 'mesh', 'frozen'}
+_ATTRIBUTES_IN_NPARRAY = {'kpt', 'kpts', '_kpts', 'kpts_band', 'mesh', 'frozen'}
+# Call .to_gpu() for additional attributes that are not specified in the
+# class._keys list
+_ADDITIONAL_ATTRIBUTES = ['_scf', '_numint']
 
 def to_gpu(method, out=None):
     '''Convert a method to its corresponding GPU variant, and recursively
@@ -1529,25 +1543,51 @@ def to_gpu(method, out=None):
 
         from importlib import import_module
         mod = import_module(method.__module__.replace('pyscf', 'gpu4pyscf'))
-        cls = getattr(mod, method.__class__.__name__)
+        try:
+            cls = getattr(mod, method.__class__.__name__)
+        except AttributeError:
+            if hasattr(cls, 'from_cpu'):
+                # the customized to_gpu function can be accessed at module
+                # levelin gpu4pyscf.
+                return cls.from_cpu(method)
+            raise
+
+        # Allow gpu4pyscf to customize the to_gpu method for PySCF classes.
+        if hasattr(mod, 'from_cpu'):
+            return mod.from_cpu(method)
+
         # A temporary GPU instance. This ensures to initialize private
         # attributes that are only available for GPU code.
-        out = cls(omniobj)
+        cls = getattr(mod, method.__class__.__name__)
+        out = method.view(cls)
 
-    # Convert only the keys that are defined in the corresponding GPU class
-    cls_keys = [getattr(cls, '_keys', ()) for cls in out.__class__.__mro__[:-1]]
-    out_keys = set(out.__dict__).union(*cls_keys)
-    # Only overwrite the attributes of the same name.
-    keys = set(method.__dict__).intersection(out_keys)
+    elif hasattr(out, 'from_cpu'):
+        out.__dict__.update(out.__class__.from_cpu(method).__dict__)
+        return out
 
-    for key in keys:
-        val = getattr(method, key)
-        if isinstance(val, numpy.ndarray):
-            if key not in _ATTRIBUTES_IN_NPARRAY:
+    cls_keys = set.union(*[getattr(cls, '_keys', ()) for cls in out.__class__.__mro__[:-1]])
+    cpu_keys = set.union(*[getattr(cls, '_keys', ()) for cls in method.__class__.__mro__[:-1]])
+    # Discards keys that are only defined in CPU classes
+    discards = cpu_keys.difference(cls_keys)
+    for k in discards:
+        out.__dict__.pop(k, None)
+
+    for key, val in method.__dict__.items():
+        # Convert only the keys that are defined in the corresponding GPU class
+        if key in cls_keys and key not in _ATTRIBUTES_IN_NPARRAY:
+            if isinstance(val, numpy.ndarray):
                 val = cupy.asarray(val)
-        elif hasattr(val, 'to_gpu'):
-            val = val.to_gpu()
+            elif hasattr(val, 'to_gpu'):
+                val = val.to_gpu()
         setattr(out, key, val)
+
+    for key in _ADDITIONAL_ATTRIBUTES:
+        val = getattr(method, key, None)
+        if hasattr(val, 'to_gpu'):
+            setattr(out, key, val.to_gpu())
     if hasattr(out, 'reset'):
-        out.reset()
+        try:
+            out.reset()
+        except NotImplementedError:
+            pass
     return out

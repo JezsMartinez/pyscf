@@ -24,6 +24,7 @@ from pyscf.lib import logger
 from pyscf.scf import hf as mol_hf
 from pyscf.pbc import tools
 from pyscf.pbc.lib import kpts as libkpts
+from pyscf.pbc.lib.kpts_helper import is_trim
 from pyscf.pbc.scf import khf
 
 @lib.with_doc(khf.get_occ.__doc__)
@@ -117,8 +118,28 @@ def eig(kmf, h_kpts, s_kpts):
         mo_coeff_kpts.append(c)
     return eig_kpts, mo_coeff_kpts
 
+def eig_trs(kmf, h_kpts, s_kpts):
+    ''' Forcing real orbitals at time-reversal invariant momenta.
+    '''
+    cell = kmf.cell
+    kpts = kmf.kpts
+    trs_mask = is_trim(cell, kpts.kpts_ibz)
+
+    eig_kpts = []
+    mo_coeff_kpts = []
+
+    for k in range(kpts.nkpts_ibz):
+        if trs_mask[k]:
+            e, c = kmf._eigh(h_kpts[k].real, s_kpts[k].real)
+        else:
+            e, c = kmf._eigh(h_kpts[k], s_kpts[k])
+        c = c.astype(h_kpts[k].dtype)
+        eig_kpts.append(e)
+        mo_coeff_kpts.append(c)
+
+    return eig_kpts, mo_coeff_kpts
+
 def ksymm_scf_common_init(kmf, cell, kpts, use_ao_symmetry=True):
-    kmf._kpts = None
     kmf.use_ao_symmetry = (cell.dimension == 3 and
                            use_ao_symmetry and
                            not kpts.time_reversal and
@@ -162,8 +183,7 @@ class KsymAdaptedKSCF(khf.KSCF):
             kpts = libkpts.make_kpts(self.cell, kpts=kpts)
         elif not isinstance(kpts, libkpts.KPoints):
             raise TypeError("Input kpts have wrong type: %s" % type(kpts))
-        kpts_bz = kpts.kpts
-        self.with_df.kpts = np.reshape(kpts_bz, (-1,3))
+        self.with_df.kpts = kpts
         self._kpts = kpts
 
     @property
@@ -178,7 +198,12 @@ class KsymAdaptedKSCF(khf.KSCF):
 
     @kmesh.setter
     def kmesh(self, x):
-        self.kpts = self.cell.make_kpts(x)
+        self.kpts = self.cell.make_kpts(x, space_group_symmetry=True)
+
+    def reset(self, cell=None):
+        self._kpts.reset(cell)
+        khf.KSCF.reset(self, cell)
+        return self
 
     def dump_flags(self, verbose=None):
         mol_hf.SCF.dump_flags(self, verbose)
@@ -266,6 +291,8 @@ class KsymAdaptedKSCF(khf.KSCF):
     def eig(self, h_kpts, s_kpts):
         if self.use_ao_symmetry:
             return eig(self, h_kpts, s_kpts)
+        elif self.kpts.time_reversal:
+            return eig_trs(self, h_kpts, s_kpts)
         else:
             return khf.KSCF.eig(self, h_kpts, s_kpts)
 

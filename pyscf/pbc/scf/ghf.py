@@ -98,11 +98,11 @@ def get_jk(mf, cell=None, dm=None, hermi=0, kpt=None, kpts_band=None,
     return vj, vk
 
 class GHF(pbchf.SCF):
-    '''GHF class for PBCs.
+    '''GHF class for PBCs at a single point (default: gamma point).
     '''
     _keys = {'with_soc'}
 
-    def __init__(self, cell, kpt=np.zeros(3),
+    def __init__(self, cell, kpt=None,
                  exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald')):
         pbchf.SCF.__init__(self, cell, kpt, exxdiv)
         self.with_soc = None
@@ -120,12 +120,16 @@ class GHF(pbchf.SCF):
     mulliken_meta = mol_ghf.GHF.mulliken_meta
     spin_square = mol_ghf.GHF.spin_square
     stability = mol_ghf.GHF.stability
+    gen_response = NotImplemented
 
     def get_hcore(self, cell=None, kpt=None):
+        if cell is None: cell = self.cell
         hcore = pbchf.SCF.get_hcore(self, cell, kpt)
         hcore = scipy.linalg.block_diag(hcore, hcore)
-        if self.with_soc:
-            raise NotImplementedError
+        if self.with_soc and cell.has_ecp_soc():
+            from pyscf.pbc.gto.ecp import ecp_int
+            # The ECP SOC contribution = <|1j * s * U_SOC|>
+            hcore = hcore + ecp_int(cell, kpt, intor='ECPso')
         return hcore
 
     def get_ovlp(self, cell=None, kpt=None):

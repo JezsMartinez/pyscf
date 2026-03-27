@@ -251,7 +251,6 @@ class SCF_GradScanner(lib.GradScanner):
 
     def __call__(self, mol_or_geom, **kwargs):
         if isinstance(mol_or_geom, gto.MoleBase):
-            assert mol_or_geom.__class__ == gto.Mole
             mol = mol_or_geom
         else:
             mol = self.mol.set_geom_(mol_or_geom, inplace=False)
@@ -259,13 +258,6 @@ class SCF_GradScanner(lib.GradScanner):
         self.reset(mol)
         mf_scanner = self.base
         e_tot = mf_scanner(mol)
-
-        if isinstance(mf_scanner, hf.KohnShamDFT):
-            if getattr(self, 'grids', None):
-                self.grids.reset(mol)
-            if getattr(self, 'nlcgrids', None):
-                self.nlcgrids.reset(mol)
-
         de = self.kernel(**kwargs)
         return e_tot, de
 
@@ -372,12 +364,16 @@ class GradientsBase(lib.StreamObject):
             solver (string) : geometry optimization solver, can be "geomeTRIC"
             (default) or "berny".
         '''
-        if solver.lower() == 'geometric':
+        solver = solver.lower()
+        if solver == 'geometric':
             from pyscf.geomopt import geometric_solver
             return geometric_solver.GeometryOptimizer(self.as_scanner())
-        elif solver.lower() == 'berny':
+        elif solver == 'berny':
             from pyscf.geomopt import berny_solver
             return berny_solver.GeometryOptimizer(self.as_scanner())
+        elif solver == 'ase':
+            from pyscf.geomopt import ase_solver
+            return ase_solver.GeometryOptimizer(self.base)
         else:
             raise RuntimeError('Unknown geometry optimization solver %s' % solver)
 
@@ -399,7 +395,10 @@ class GradientsBase(lib.StreamObject):
 
     def kernel(self, mo_energy=None, mo_coeff=None, mo_occ=None, atmlst=None):
         cput0 = (logger.process_clock(), logger.perf_counter())
-        if mo_energy is None: mo_energy = self.base.mo_energy
+        if mo_energy is None:
+            if self.base.mo_energy is None:
+                self.base.run()
+            mo_energy = self.base.mo_energy
         if mo_coeff is None: mo_coeff = self.base.mo_coeff
         if mo_occ is None: mo_occ = self.base.mo_occ
         if atmlst is None:
@@ -440,14 +439,7 @@ class GradientsBase(lib.StreamObject):
         to be split into alpha,beta in DF-ROHF subclass'''
         return lib.tag_array (dm, mo_coeff=mo_coeff, mo_occ=mo_occ)
 
-    # to_gpu can be reused only when __init__ still takes mf
-    def to_gpu(self):
-        mf = self.base.to_gpu()
-        from importlib import import_module
-        mod = import_module(self.__module__.replace('pyscf', 'gpu4pyscf'))
-        cls = getattr(mod, self.__class__.__name__)
-        obj = cls(mf)
-        return obj
+    to_gpu = lib.to_gpu
 
 # export the symbol GradientsMixin for backward compatibility.
 # GradientsMixin should be dropped in the future.

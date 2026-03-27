@@ -21,14 +21,12 @@ Gradient of PCM family solvent models, copied from GPU4PySCF with modifications
 '''
 
 import numpy
-import scipy
+from scipy.special import erf
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf import gto, df
-from pyscf.solvent.pcm import PI, switch_h
+from pyscf.solvent.pcm import PI, switch_h, PCM
 from pyscf.grad import rhf as rhf_grad
-
-libdft = lib.load_library('libdft')
 
 def grad_switch_h(x):
     ''' first derivative of h(x)'''
@@ -37,7 +35,7 @@ def grad_switch_h(x):
     dy[x>1] = 0.0
     return dy
 
-def get_dF_dA(surface):
+def get_dF_dA(surface, surface_discretization_method = "SWIG"):
     '''
     J. Chem. Phys. 133, 244111 (2010), Appendix C
     '''
@@ -46,8 +44,12 @@ def get_dF_dA(surface):
     grid_coords = surface['grid_coords']
     switch_fun  = surface['switch_fun']
     area        = surface['area']
-    R_in_J      = surface['R_in_J']
-    R_sw_J      = surface['R_sw_J']
+    if surface_discretization_method.upper() == "SWIG":
+        R_in_J = surface['R_in_J']
+        R_sw_J = surface['R_sw_J']
+    elif surface_discretization_method.upper() == "ISWIG":
+        charge_exp = surface['charge_exp']
+        R_J = surface['R_J']
 
     ngrids = grid_coords.shape[0]
     natom = atom_coords.shape[0]
@@ -59,15 +61,31 @@ def get_dF_dA(surface):
         coords = grid_coords[p0:p1]
         ri_rJ = numpy.expand_dims(coords, axis=1) - atom_coords
         riJ = numpy.linalg.norm(ri_rJ, axis=-1)
-        diJ = (riJ - R_in_J) / R_sw_J
-        diJ[:,ia] = 1.0
-        diJ[diJ < 1e-8] = 0.0
         ri_rJ[:,ia,:] = 0.0
-        ri_rJ[diJ < 1e-8] = 0.0
 
-        fiJ = switch_h(diJ)
-        dfiJ = grad_switch_h(diJ) / (fiJ * riJ * R_sw_J)
-        dfiJ = numpy.expand_dims(dfiJ, axis=-1) * ri_rJ
+        if surface_discretization_method.upper() == "SWIG":
+            diJ = (riJ - R_in_J) / R_sw_J
+            diJ[:,ia] = 1.0
+            diJ[diJ < 1e-8] = 0.0
+            ri_rJ[diJ < 1e-8] = 0.0
+
+            fiJ = switch_h(diJ)
+            dfiJ = grad_switch_h(diJ) / (fiJ * riJ * R_sw_J)
+            dfiJ = numpy.expand_dims(dfiJ, axis=-1) * ri_rJ
+        elif surface_discretization_method.upper() == "ISWIG":
+            xi = charge_exp[p0:p1]
+            erf_input_p = xi[:, None] * (R_J[None, :] + riJ)
+            erf_input_m = xi[:, None] * (R_J[None, :] - riJ)
+            fiJ = 1 - 0.5 * (erf(erf_input_m) + erf(erf_input_p))
+            fiJ[:,ia] = 1.0
+
+            dfiJ = 1/numpy.sqrt(numpy.pi) * xi[:, None] * \
+                   (numpy.exp(-erf_input_m**2) - numpy.exp(-erf_input_p**2)) / (fiJ * riJ)
+            dfiJ = numpy.expand_dims(dfiJ, axis=-1) * ri_rJ
+
+            dfiJ[:, ia, :] = -numpy.sum(dfiJ, axis=1) # Translation invariance for diagonal terms
+        else:
+            raise NotImplementedError(f"surface_discretization_method = {surface_discretization_method} not recognized")
 
         Fi = switch_fun[p0:p1]
         Ai = area[p0:p1]
@@ -105,7 +123,7 @@ def get_dD_dS(surface, dF, with_S=True, with_D=False):
     xi_r_ij = xi_ij * rij
     numpy.fill_diagonal(rij, 1)
 
-    dS_dr = -(scipy.special.erf(xi_r_ij) - 2.0*xi_r_ij/PI**0.5*numpy.exp(-xi_r_ij**2))/rij**2
+    dS_dr = -(erf(xi_r_ij) - 2.0*xi_r_ij/PI**0.5*numpy.exp(-xi_r_ij**2))/rij**2
     numpy.fill_diagonal(dS_dr, 0)
 
     dS_dr= numpy.expand_dims(dS_dr, axis=-1)
@@ -199,6 +217,7 @@ def grad_qv(pcmobj, dm, q_sym = None):
     dvj = numpy.zeros([3,nao])
     for p0, p1 in lib.prange(0, ngrids, blksize):
         fakemol = gto.fakemol_for_charges(grid_coords[p0:p1], expnt=exponents[p0:p1]**2)
+        fakemol.cart = mol.cart
         v_nj = df.incore.aux_e2(mol, fakemol, intor=int3c2e_ip1, aosym='s1', cintopt=cintopt)
         dvj += numpy.einsum('xijk,ij,k->xi', v_nj, dm, q_sym[p0:p1])
 
@@ -207,6 +226,7 @@ def grad_qv(pcmobj, dm, q_sym = None):
     dq = numpy.empty([3,ngrids])
     for p0, p1 in lib.prange(0, ngrids, blksize):
         fakemol = gto.fakemol_for_charges(grid_coords[p0:p1], expnt=exponents[p0:p1]**2)
+        fakemol.cart = mol.cart
         q_nj = df.incore.aux_e2(mol, fakemol, intor=int3c2e_ip2, aosym='s1', cintopt=cintopt)
         dq[:,p0:p1] = numpy.einsum('xijk,ij,k->xk', q_nj, dm, q_sym[p0:p1])
 
@@ -244,7 +264,7 @@ def grad_solver(pcmobj, dm):
 
     vK_1 = numpy.linalg.solve(K.T, v_grids)
 
-    dF, dA = get_dF_dA(pcmobj.surface)
+    dF, dA = get_dF_dA(pcmobj.surface, pcmobj.surface_discretization_method)
 
     with_D = pcmobj.method.upper() in ['IEF-PCM', 'IEFPCM', 'SS(V)PE']
     dD, dS, dSii = get_dD_dS(pcmobj.surface, dF, with_D=with_D, with_S=True)
@@ -381,15 +401,32 @@ def grad_solver(pcmobj, dm):
     t1 = log.timer_debug1('grad solver', *t1)
     return de
 
-def make_grad_object(grad_method):
-    '''For grad_method in vacuum, add nuclear gradients of solvent pcmobj'''
-    if grad_method.base.with_solvent.frozen:
+def make_grad_object(base_method):
+    '''Create nuclear gradients object with solvent contributions for the given
+    solvent-attached method based on its gradients method in vaccum
+    '''
+    from pyscf.solvent._attach_solvent import _Solvation
+    if isinstance(base_method, rhf_grad.GradientsBase):
+        # For backward compatibility. The input argument is a gradient object in
+        # previous implementations.
+        base_method = base_method.base
+
+    # Must be a solvent-attached method
+    assert isinstance(base_method, _Solvation)
+    with_solvent = base_method.with_solvent
+    if with_solvent.frozen:
         raise RuntimeError('Frozen solvent model is not avialbe for energy gradients')
 
-    name = (grad_method.base.with_solvent.__class__.__name__
-            + grad_method.__class__.__name__)
-    return lib.set_class(WithSolventGrad(grad_method),
-                         (WithSolventGrad, grad_method.__class__), name)
+    # create the Gradients in vacuum. Cannot call super().Gradients() here
+    # because other dynamic corrections might be applied to the base_method.
+    # Calling super().Gradients might discard these corrections.
+    vac_grad = base_method.undo_solvent().Gradients()
+    # The base method for vac_grad discards the with_solvent. Change its base to
+    # the solvent-attached base method
+    vac_grad.base = base_method
+    name = with_solvent.__class__.__name__ + vac_grad.__class__.__name__
+    return lib.set_class(WithSolventGrad(vac_grad),
+                         (WithSolventGrad, vac_grad.__class__), name)
 
 class WithSolventGrad:
     _keys = {'de_solvent', 'de_solute'}
@@ -408,21 +445,26 @@ class WithSolventGrad:
         return obj
 
     def to_gpu(self):
-        from gpu4pyscf.solvent.grad import pcm    # type: ignore
-        grad_method = self.undo_solvent().to_gpu()
-        return pcm.make_grad_object(grad_method)
+        from pyscf.lib.misc import to_gpu
+        from pyscf.tdscf.rhf import TDBase
+        # Only PCM and SMD are available on GPU.
+        # FIXME: The SMD class is a child class of PCM now. Additional check for
+        # SMD should be made if SMD is refactored as an independent class
+        assert isinstance(self.base.with_solvent, PCM)
+        if isinstance(self, TDBase):
+            raise NotImplementedError('.to_gpu() for PCM-TDDFT')
+        return to_gpu(self, self.base.to_gpu().Gradients())
 
     def kernel(self, *args, dm=None, atmlst=None, **kwargs):
-        dm = kwargs.pop('dm', None)
         if dm is None:
             dm = self.base.make_rdm1(ao_repr=True)
         if dm.ndim == 3:
             dm = dm[0] + dm[1]
 
+        logger.debug(self, 'Compute gradients from solvents')
+        self.de_solvent = self.base.with_solvent.grad(dm)
+        logger.debug(self, 'Compute gradients from solutes')
         self.de_solute = super().kernel(*args, **kwargs)
-        self.de_solvent = grad_qv(self.base.with_solvent, dm)
-        self.de_solvent+= grad_nuc(self.base.with_solvent, dm)
-        self.de_solvent+= grad_solver(self.base.with_solvent, dm)
         self.de = self.de_solute + self.de_solvent
 
         if self.verbose >= logger.NOTE:
@@ -437,4 +479,3 @@ class WithSolventGrad:
         # disable _finalize. It is called in grad_method.kernel method
         # where self.de was not yet initialized.
         pass
-

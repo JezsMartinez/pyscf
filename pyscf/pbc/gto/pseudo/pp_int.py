@@ -25,6 +25,7 @@ For GTH/HGH PPs, see:
 
 import ctypes
 import numpy
+import numpy as np
 import scipy.special
 from pyscf import lib
 from pyscf import gto
@@ -56,7 +57,7 @@ def get_gth_vlocG_part1(cell, Gv):
     G2 = numpy.einsum('ix,ix->i', Gv, Gv)
     G0idx = numpy.where(G2==0)[0]
 
-    if cell.dimension != 2 or cell.low_dim_ft_type == 'inf_vacuum':
+    if cell.dimension == 3 or cell.dimension == 0 or cell.low_dim_ft_type == 'inf_vacuum':
         vlocG = numpy.zeros((cell.natm, len(G2)))
         for ia in range(cell.natm):
             Zia = cell.atom_charge(ia)
@@ -68,7 +69,7 @@ def get_gth_vlocG_part1(cell, Gv):
                 rloc, nexp, cexp = pp[1:3+1]
                 vlocG[ia] *= numpy.exp(-0.5*rloc**2 * G2)
                 # alpha parameters from the non-divergent Hartree+Vloc G=0 term.
-                vlocG[ia,G0idx] = -2*numpy.pi*Zia*rloc**2
+                vlocG[ia,G0idx] += -2*numpy.pi*Zia*rloc**2
 
     elif cell.dimension == 2:
         # The following 2D ewald summation is taken from:
@@ -436,11 +437,6 @@ def get_pp_nl(cell, kpts=None):
                 offset[i] = p0 + nd
             ppnl[k] += numpy.einsum('ilp,ij,jlq->pq', ilp.conj(), hl, ilp)
 
-    if abs(kpts_lst).sum() < 1e-9:  # gamma_point:
-        ppnl = ppnl.real
-
-    if kpts is None or numpy.shape(kpts) == (3,):
-        ppnl = ppnl[0]
     return ppnl
 
 
@@ -463,11 +459,54 @@ def vppnl_nuc_grad(cell, dm, kpts=None):
         for k, kpt in enumerate(kpts_lst):
             ppnl_half_ip2[0][k] *= -1
 
-    grad = _contract_ppnl_nuc_grad(cell, fakecell, dm, hl_blocks,
-                                   ppnl_half, ppnl_half_ip2, kpts=kpts)
-    grad *= -2
-    return grad
+    if gamma_point(kpts_lst):
+        grad = _contract_ppnl_nuc_grad(cell, fakecell, dm, hl_blocks,
+                                       ppnl_half, ppnl_half_ip2, kpts=kpts)
+        grad *= -2
+        return grad
 
+    nkpts = len(kpts_lst)
+    nao = cell.nao_nr()
+    assert dm.shape == (nkpts, nao, nao)
+    dm_dmH = dm + dm.transpose(0,2,1).conj() # bra and ket
+
+    grad = numpy.zeros([cell.natm, 3], order='C', dtype=numpy.complex128)
+
+    buf1 = numpy.empty((3*9*nao), dtype=numpy.complex128)
+    buf2 = numpy.empty((3*3*9*nao), dtype=numpy.complex128)
+
+    dppnl = numpy.zeros((nkpts,3,nao,nao), dtype=numpy.complex128)
+    for k, kpt in enumerate(kpts_lst):
+        offset = [0] * 3
+
+        for ib, hl in enumerate(hl_blocks):
+            l = fakecell.bas_angular(ib)
+            nd = 2 * l + 1
+            hl_dim = hl.shape[0]
+            ilp = numpy.ndarray((hl_dim,nd,nao), dtype=numpy.complex128, buffer=buf1)
+            dilp = numpy.ndarray((hl_dim,3,nd,nao), dtype=numpy.complex128, buffer=buf2)
+            for i in range(hl_dim):
+                p0 = offset[i]
+                ilp[i] = ppnl_half[i][k][p0:p0+nd]
+                dilp[i] = ppnl_half_ip2[i][k][:, p0:p0+nd]
+                offset[i] = p0 + nd
+            dppnl_k = numpy.einsum('idlp,ij,jlq->dpq', dilp.conj(), hl, ilp)
+            dppnl[k] += dppnl_k
+
+            i_pp_atom = fakecell._bas[ib,0]
+            grad[i_pp_atom] += numpy.einsum('dpq,qp->d', dppnl_k, dm_dmH[k])
+
+    aoslices = cell.aoslice_by_atom()
+    for ia in range(cell.natm):
+        p0, p1 = aoslices[ia][2:]
+        grad[ia] -= numpy.einsum('kdpq,kqp->d', dppnl[:,:,p0:p1,:], dm_dmH[:,:,p0:p1])
+
+    grad_max_imag = numpy.max(numpy.abs(grad.imag))
+    if grad_max_imag >= 1e-8:
+        lib.logger.warn(cell, f"Large imaginary part ({grad_max_imag:e}) from pseudopotential non-local term gradient.")
+    grad = grad.real
+
+    return grad
 
 def fake_cell_vloc(cell, cn=0, atm_id=None):
     '''Generate fake cell for V_{loc}.

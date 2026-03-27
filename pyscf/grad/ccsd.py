@@ -350,8 +350,8 @@ def _rdm2_mo2ao(mycc, d2, mo_coeff, fsave=None):
     blksize = min(nao_pair, max(ccsd.BLKMIN, blksize))
     fswap.create_dataset('o', (nmo,nocc,nao_pair), 'f8', chunks=(nocc,nocc,blksize))
     buf1 = numpy.zeros((nocc,nocc,nmo,nmo))
-    buf1[:,:,:nocc,:nocc] = doooo
-    buf1[:,:,nocc:,nocc:] = _cp(doovv)
+    buf1[:,:,:nocc,:nocc] = numpy.asarray(doooo, order='C')
+    buf1[:,:,nocc:,nocc:] = numpy.asarray(doovv, order='C')
     buf1 = _trans(buf1.reshape(nocc**2,-1), (0,nmo,0,nmo))
     fswap['o'][:nocc] = buf1.reshape(nocc,nocc,nao_pair)
     dovoo = numpy.asarray(dooov).transpose(2,3,0,1)
@@ -422,7 +422,10 @@ class Gradients(rhf_grad.GradientsBase):
                atmlst=None, verbose=None):
         log = logger.new_logger(self, verbose)
         mycc = self.base
-        if t1 is None: t1 = mycc.t1
+        if t1 is None:
+            if mycc.t1 is None:
+                mycc.run()
+            t1 = mycc.t1
         if t2 is None: t2 = mycc.t2
         if l1 is None: l1 = mycc.l1
         if l2 is None: l2 = mycc.l2

@@ -20,7 +20,7 @@ SMD solvent model, copied from GPU4PYSCF with modification for CPU
 import numpy as np
 from pyscf import lib, gto
 from pyscf.data import radii
-from pyscf.dft import gen_grid
+from pyscf.dft.gen_grid import LEBEDEV_ORDER
 from pyscf.solvent import pcm
 from pyscf.solvent._attach_solvent import _for_scf
 from pyscf.lib import logger
@@ -265,7 +265,8 @@ def get_cds_legacy(smdobj):
 
     mol = smdobj.mol
     natm = mol.natm
-    soln, _, sola, solb, solg, _, solc, solh = smdobj.solvent_descriptors
+    solvent_descriptors = smdobj.solvent_descriptors or solvent_db[smdobj.solvent]
+    soln, _, sola, solb, solg, _, solc, solh = solvent_descriptors
     #symbols = [mol.atom_s(ia) for ia in range(mol.natm)]
     charges = np.asarray(mol.atom_charges(), dtype=np.int32, order='F')
     coords = np.asarray(mol.atom_coords(unit='B'), dtype=np.float64, order='C')
@@ -302,38 +303,137 @@ def get_cds_legacy(smdobj):
                     ctypes.byref(gcds), ctypes.byref(areacds), dcds)
     return gcds.value / hartree2kcal, dcds
 
+# Note: in various places, SMD instance is not explictly tested. It is checked
+# by the statement "isinstance(solvent, PCM)"
 class SMD(pcm.PCM):
+    '''
+    SMD Solvent Model
+
+    Attributes:
+    ----------
+    method : str
+        No effects. It is set to 'SMD' as a placeholder
+
+    vdw_scale : float
+        A scaling factor for van der Waals radii. Default is 1.0.
+
+    r_probe : float
+        An additional radius (in Angstrom) added to the van der Waals radii.
+        Default is 0.4 Angstrom.
+
+    radii_table : dict
+        Custom van der Waals radii for each element. By default, scaled van der Waals radii
+        from `vdw_scale` and `r_probe` are used.
+
+    sasa_ng : int
+        The number of quadrature grids used for calculating the Solvent
+        Accessible Surface Area (SASA). Default is 590.
+
+    solvent : str
+        The name of the solvent, which is used to determine the dielectric constant and other
+        relevant parameters. Supported solvents can be accessed via the variable
+        `pyscf.solvent.smd.solvent_db`.
+
+    frozen : bool
+        Whether to freeze the potential produced by the solvent during SCF iterations or
+        other convergence processes. When frozen=True is set, the solvent is
+        assumed to respond slowly, while the electron density relaxes quickly.
+        Default is False.
+
+    max_cycle : int
+        The maximum number of iterations to relax the solvent.
+
+    conv_tol : float
+        The convergence tolerance for total energy during solvent relaxation.
+
+    equilibrium_solvation : bool
+        Affects TDDFT and other excited state computations. Controls whether the solvent
+        relaxes rapidly with respect to the electron density of the excited state.
+        For vertical excitations, it is recommended to set this to False, as the solvent
+        typically does not fully relax. In some software packages (e.g., Q-Chem),
+        non-equilibrium solvation is applied with an optical dielectric constant of
+        eps=1.78. Default is False.
+
+    state_id : int
+        Specifies the target state in excited state calculations.
+        `state_id=0` corresponds to the ground state, while `state_id=1` corresponds
+        to the first excited state. Default is 0.
+
+    Saved Results:
+    --------------
+    e_cds : float
+        Cavitation, Dispersion and Solvent energy
+
+    Intermediate Attributes:
+    ------------------------
+    These attributes are generated during calculations and should not be modified.
+    Additionally, they may not be compatible between GPU and CPU implementations.
+
+    - surface
+    - _intermediates
+    - v_grids_n
+    - solvent_descriptors
+    '''
+
     _keys = {
-        'intopt', 'method', 'e_cds', 'solvent_descriptors', 'r_probe', 'sasa_ng'
+        'method', 'vdw_scale', 'sasa_ng',
+        'mol', 'radii_table', 'lebedev_order', 'lmax', 'eta',
+        'solvent', 'eps', 'max_cycle', 'conv_tol', 'state_id', 'frozen',
+        'frozen_dm0_for_finite_difference_without_response',
+        'equilibrium_solvation', 'solvent_descriptors',
+        'surface', 'intopt', 'e', 'v', 'v_grids_n', 'e_cds',
+        'surface_discretization_method',
     }
+
     def __init__(self, mol, solvent=''):
-        super().__init__(mol)
+        self.mol = mol
+        self.stdout = mol.stdout
+        self.verbose = mol.verbose
+        self.max_memory = mol.max_memory
+
         self.vdw_scale = 1.0
         self.sasa_ng = 590 # quadrature grids for calculating SASA
-        self.r_probe = 0.4/radii.BOHR
-        self.method = 'SMD'  # use IEFPCM for electrostatic
+        self.method = 'SMD'
         if solvent not in solvent_db:
             raise RuntimeError(f'{solvent} is not available in SMD')
-        self._solvent = solvent
-        self.solvent_descriptors = solvent_db[solvent]
-        self.radii_table = smd_radii(self.solvent_descriptors[2])
+        self.solvent = solvent
+        self.solvent_descriptors = None
+        self.radii_table = None
+        self.eps = None
+        self.surface_discretization_method = "SWIG"
+        self.max_cycle = 20
+        self.conv_tol = 1e-7
+        self.state_id = 0
+        self.frozen = False
+        self.frozen_dm0_for_finite_difference_without_response = None
+        self.equilibrium_solvation = False
+
+        # Following are intermediates
+        self.surface = {}
+        self._intermediates = {}
+        self.e = None
+        self.v = None
+        self.v_grids_n = None
         self.e_cds = None
 
     def build(self, ng=None):
+        solvent_descriptors = self.solvent_descriptors or solvent_db[self.solvent]
         if self.radii_table is None:
-            vdw_scale = self.vdw_scale
-            self.radii_table = vdw_scale * pcm.modified_Bondi + self.r_probe
+            radii_table = smd_radii(solvent_descriptors[2])
+        else:
+            radii_table = self.radii_table
+        logger.debug(self, 'radii_table %s', radii_table*radii.BOHR)
         mol = self.mol
         if ng is None:
-            ng = gen_grid.LEBEDEV_ORDER[self.lebedev_order]
+            ng = self.sasa_ng
 
-        self.surface = pcm.gen_surface(mol, rad=self.radii_table, ng=ng)
+        self.surface = pcm.gen_surface(mol, rad=radii_table, ng=ng)
         self._intermediates = {}
         F, A = pcm.get_F_A(self.surface)
         D, S = pcm.get_D_S(self.surface, with_S=True, with_D=True)
 
-        epsilon = self.eps
-        f_epsilon = (epsilon - 1.0)/(epsilon + 1.0)
+        epsilon = self.eps or solvent_descriptors[5]
+        f_epsilon = (epsilon - 1.0)/(epsilon + 1.0) if epsilon != float('inf') else 1.
         DA = D*A
         DAS = np.dot(DA, S)
         K = S - f_epsilon/(2.0*np.pi) * DAS
@@ -358,17 +458,7 @@ class SMD(pcm.PCM):
         fakemol_nuc = gto.fakemol_for_charges(atom_coords)
         v_ng = gto.mole.intor_cross(int2c2e, fakemol_nuc, fakemol)
         self.v_grids_n = np.dot(atom_charges, v_ng)
-
-    @property
-    def solvent(self):
-        return self._solvent
-
-    @solvent.setter
-    def solvent(self, solvent):
-        self._solvent = solvent
-        self.solvent_descriptors = solvent_db[solvent]
-        self.radii_table = smd_radii(self.solvent_descriptors[2])
-        self.eps = self.solvent_descriptors[5]
+        return self
 
     @property
     def sol_desc(self):
@@ -382,16 +472,24 @@ class SMD(pcm.PCM):
         '''
         assert len(values) == 8
         self.solvent_descriptors = values
-        self.radii_table = smd_radii(self.solvent_descriptors[2])
-        self.eps = values[5]
+
+    @property
+    def lebedev_order(self):
+        for key, val in LEBEDEV_ORDER.items():
+            if val == self.sasa_ng:
+                return key
+        raise RuntimeError(f'sasa_ng={self.sasa_ng} does not have a corresponding lebedev_order')
+    @lebedev_order.setter
+    def lebedev_order(self, x):
+        self.sasa_ng = LEBEDEV_ORDER[x]
 
     def dump_flags(self, verbose=None):
-        n, _, alpha, beta, gamma, _, phi, psi = self.solvent_descriptors
+        solvent_descriptors = self.solvent_descriptors or solvent_db[self.solvent]
+        n, _, alpha, beta, gamma, eps, phi, psi = solvent_descriptors
         logger.info(self, '******** %s ********', self.__class__)
-        logger.info(self, 'lebedev_order = %s (%d grids per sphere)',
-                    self.lebedev_order, gen_grid.LEBEDEV_ORDER[self.lebedev_order])
-        logger.info(self, 'eps = %s'          , self.eps)
-        logger.info(self, 'frozen = %s'       , self.frozen)
+        logger.info(self, 'sasa_ng = %s', self.sasa_ng)
+        logger.info(self, 'eps = %s'   , self.eps or eps)
+        logger.info(self, 'frozen = %s', self.frozen)
         logger.info(self, '---------- SMD solvent descriptors -------')
         logger.info(self, f'n     = {n}')
         logger.info(self, f'alpha = {alpha}')
@@ -401,33 +499,46 @@ class SMD(pcm.PCM):
         logger.info(self, f'psi   = {psi}')
         logger.info(self, '--------------------- end ----------------')
         logger.info(self, 'equilibrium_solvation = %s', self.equilibrium_solvation)
-        logger.info(self, 'radii_table %s', self.radii_table*radii.BOHR)
-        if self.atom_radii:
-            logger.info(self, 'User specified atomic radii %s', str(self.atom_radii))
         return self
 
     def get_cds(self):
-        return get_cds_legacy(self)[0]
+        if self.e_cds is None:
+            self.e_cds = get_cds_legacy(self)[0]
+        return self.e_cds
 
     def nuc_grad_method(self, grad_method):
-        from pyscf.solvent.grad import smd as smd_grad
-        if self.frozen:
-            raise RuntimeError('Frozen solvent model is not supported')
-        from pyscf import scf
-        if isinstance(grad_method.base, (scf.hf.RHF, scf.uhf.UHF)):
-            return smd_grad.make_grad_object(grad_method)
-        else:
-            raise RuntimeError('Only SCF gradient is supported')
+        raise DeprecationWarning('Use the make_grad_object function from '
+                                 'pyscf.solvent.grad.smd instead.')
+
+    def grad(self, dm, verbose=None):
+        '''Computes the Jacobian for the energy associated with the solvent,
+        including the derivatives of the solvent itsself and the interactions
+        between the solvent and the charge density of the solute.
+        '''
+        from pyscf.solvent.grad.pcm import grad_qv, grad_nuc
+        from pyscf.solvent.grad.smd import grad_solver, get_cds
+        de_solvent = grad_qv(self, dm)
+        de_solvent+= grad_solver(self, dm)
+        de_solvent+= grad_nuc(self, dm)
+        #de_cds     = get_cds(self.base.with_solvent)
+        de_cds     = get_cds_legacy(self)[1]
+        logger.info(self, 'Cavitation, Dispersion and Solvent structure contribution %s', de_cds)
+        return de_solvent + de_cds
 
     def Hessian(self, hess_method):
-        from pyscf.solvent.hessian import smd as smd_hess
-        if self.frozen:
-            raise RuntimeError('Frozen solvent model is not supported')
-        from pyscf import scf
-        if isinstance(hess_method.base, (scf.hf.RHF, scf.uhf.UHF)):
-            return smd_hess.make_hess_object(hess_method)
-        else:
-            raise RuntimeError('Only SCF gradient is supported')
+        raise DeprecationWarning('Use the make_hess_object function from '
+                                 'pyscf.solvent.hessian.smd instead.')
+
+    def hess(self, dm):
+        from pyscf.solvent.hessian.pcm import (
+            analytical_hess_nuc, analytical_hess_qv, analytical_hess_solver)
+        from pyscf.solvent.hessian.smd import get_cds
+        de_solvent  =    analytical_hess_nuc(self, dm, verbose=self.verbose)
+        de_solvent +=     analytical_hess_qv(self, dm, verbose=self.verbose)
+        de_solvent += analytical_hess_solver(self, dm, verbose=self.verbose)
+        de_cds = get_cds(self)
+        logger.info(self, 'Cavitation, Dispersion and Solvent structure contribution %s', de_cds)
+        return de_solvent + de_cds
 
     def reset(self, mol=None):
         super().reset(mol)

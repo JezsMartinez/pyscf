@@ -143,21 +143,29 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
 
     nocc_a, nocc_b = mf.nelec
     mo_energy = np.sort(np.hstack(mo_energy_kpts[0]))
+    nmo = mo_energy.size
+    if nocc_a > nmo:
+        raise RuntimeError('Failed to assign alpha occupancies. '
+                           f'Nocc_a ({nocc_a}) > Nmo ({nmo})')
     fermi_a = mo_energy[nocc_a-1]
     mo_occ_kpts = [[], []]
     for mo_e in mo_energy_kpts[0]:
         mo_occ_kpts[0].append((mo_e <= fermi_a).astype(np.double))
-    if nocc_a < len(mo_energy):
+    if nocc_a < nmo:
         logger.info(mf, 'alpha HOMO = %.12g  LUMO = %.12g', fermi_a, mo_energy[nocc_a])
     else:
         logger.info(mf, 'alpha HOMO = %.12g  (no LUMO because of small basis) ', fermi_a)
 
     if nocc_b > 0:
         mo_energy = np.sort(np.hstack(mo_energy_kpts[1]))
+        nmo = mo_energy.size
+        if nocc_b > nmo:
+            raise RuntimeError('Failed to assign beta occupancies. '
+                               f'Nocc_b ({nocc_b}) > Nmo ({nmo})')
         fermi_b = mo_energy[nocc_b-1]
         for mo_e in mo_energy_kpts[1]:
             mo_occ_kpts[1].append((mo_e <= fermi_b).astype(np.double))
-        if nocc_b < len(mo_energy):
+        if nocc_b < nmo:
             logger.info(mf, 'beta HOMO = %.12g  LUMO = %.12g', fermi_b, mo_energy[nocc_b])
         else:
             logger.info(mf, 'beta HOMO = %.12g  (no LUMO because of small basis) ', fermi_b)
@@ -385,8 +393,25 @@ def dip_moment(cell, dm_kpts, unit='Debye', verbose=logger.NOTE,
 
 get_rho = khf.get_rho
 
+def gen_response(mf, mo_coeff=None, mo_occ=None,
+                 with_j=True, hermi=0, max_memory=None, with_nlc=True):
+    from pyscf.pbc.scf._response_functions import _get_jk, _get_k
+    if mo_coeff is None: mo_coeff = mf.mo_coeff
+    if mo_occ is None: mo_occ = mf.mo_occ
+    cell = mf.cell
+    kpts = mf.kpts
+    if with_j:
+        def vind(dm1, kshift=0):
+            vj, vk = _get_jk(mf, cell, dm1, hermi, kpts, kshift)
+            v1 = vj[0] + vj[1] - vk
+            return v1
+    else:
+        def vind(dm1, kshift=0):
+            return -_get_k(mf, cell, dm1, hermi, kpts, kshift)
+    return vind
+
 class KUHF(khf.KSCF):
-    '''UHF class with k-point sampling.
+    '''UHF class with k-point sampling (default: gamma point).
     '''
     conv_tol_grad = getattr(__config__, 'pbc_scf_KSCF_conv_tol_grad', None)
     init_guess_breaksym = getattr(__config__, 'scf_uhf_init_guess_breaksym', 1)
@@ -405,9 +430,10 @@ class KUHF(khf.KSCF):
     get_rho = get_rho
     analyze = khf.analyze
     canonicalize = canonicalize
+    gen_response = gen_response
     to_gpu = lib.to_gpu
 
-    def __init__(self, cell, kpts=np.zeros((1,3)),
+    def __init__(self, cell, kpts=None,
                  exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald')):
         khf.KSCF.__init__(self, cell, kpts, exxdiv)
         self.nelec = None
@@ -593,7 +619,7 @@ class KUHF(khf.KSCF):
         from pyscf.pbc.scf.stability import uhf_stability
         return uhf_stability(self, internal, external, verbose)
 
-    def nuc_grad_method(self):
+    def Gradients(self):
         from pyscf.pbc.grad import kuhf
         return kuhf.Gradients(self)
 

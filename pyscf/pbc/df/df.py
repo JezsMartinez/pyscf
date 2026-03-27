@@ -60,8 +60,6 @@ from pyscf.pbc.df.gdf_builder import libpbc, _CCGDFBuilder, _CCNucBuilder
 from pyscf.pbc.df.rsdf_builder import _RSGDFBuilder, _RSNucBuilder, LINEAR_DEP_THR
 from pyscf import __config__
 
-LONGRANGE_AFT_TURNOVER_THRESHOLD = 2.5
-
 
 def make_modrho_basis(cell, auxbasis=None, drop_eta=None):
     r'''Generate a cell object using the density fitting auxbasis as
@@ -140,14 +138,12 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
         'mesh', 'exp_to_discard', 'exxdiv', 'auxcell', 'linear_dep_threshold',
     }
 
-    def __init__(self, cell, kpts=numpy.zeros((1,3))):
+    def __init__(self, cell, kpts=None):
         self.cell = cell
         self.stdout = cell.stdout
         self.verbose = cell.verbose
         self.max_memory = cell.max_memory
 
-        if isinstance(kpts, KPoints):
-            kpts = kpts.kpts
         self.kpts = kpts  # default is gamma point
         self.kpts_band = None
         self._auxbasis = None
@@ -190,6 +186,8 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
 
     def reset(self, cell=None):
         if cell is not None:
+            if isinstance(self._kpts, KPoints):
+                self._kpts.reset(cell)
             self.cell = cell
         self.auxcell = None
         self._cderi = None
@@ -205,8 +203,26 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
                       'mesh = the number of PWs (=2*gs+1) for each direction.')
         self.mesh = [2*n+1 for n in x]
 
+    @property
+    def kpts(self):
+        if isinstance(self._kpts, KPoints):
+            return self._kpts.kpts
+        else:
+            return self.cell.get_abs_kpts(self._kpts)
+
+    @kpts.setter
+    def kpts(self, val):
+        if val is None:
+            self._kpts = numpy.zeros((1, 3))
+        elif isinstance(val, KPoints):
+            self._kpts = val
+        else:
+            self._kpts = self.cell.get_scaled_kpts(val)
+
     def dump_flags(self, verbose=None):
         log = logger.new_logger(self, verbose)
+        if log.verbose < logger.INFO:
+            return self
         log.info('\n')
         log.info('******** %s ********', self.__class__)
         if self.auxcell is None:
@@ -225,8 +241,10 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
             log.info('_cderi_to_save = %s', self._cderi_to_save)
         else:
             log.info('_cderi_to_save = %s', self._cderi_to_save.name)
-        log.info('len(kpts) = %d', len(self.kpts))
-        log.debug1('    kpts = %s', self.kpts)
+
+        kpts = self.kpts
+        log.info('len(kpts) = %d', len(kpts))
+        log.debug1('    kpts = %s', kpts)
         if self.kpts_band is not None:
             log.info('len(kpts_band) = %d', len(self.kpts_band))
             log.debug1('    kpts_band = %s', self.kpts_band)
@@ -259,6 +277,7 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
                 if self._cderi == cderi and os.path.isfile(cderi):
                     logger.warn(self, 'File %s (specified by ._cderi) is '
                                 'overwritten by GDF initialization.', cderi)
+                    os.remove(cderi)
                 else:
                     logger.warn(self, 'Value of ._cderi is ignored. '
                                 'DF integrals will be saved in file %s .', cderi)
@@ -309,10 +328,11 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
             return True
         else:
             kpts = numpy.asarray(kpts).reshape(-1,3)
+            cached_kpts = self.kpts
             if self.kpts_band is None:
-                return all((len(member(kpt, self.kpts))>0) for kpt in kpts)
+                return all((len(member(kpt, cached_kpts))>0) for kpt in kpts)
             else:
-                return all((len(member(kpt, self.kpts))>0 or
+                return all((len(member(kpt, cached_kpts))>0 or
                             len(member(kpt, self.kpts_band))>0) for kpt in kpts)
 
     def sr_loop(self, kpti_kptj=numpy.zeros((2,3)), max_memory=2000,
@@ -381,6 +401,17 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
 
     def get_pp(self, kpts=None):
         '''Get the periodic pseudopotential nuc-el AO matrix, with G=0 removed.
+
+        The output of this function depends on the input `kpts`. Generally, the
+        output is a (Nk, Nao, Nao) array, where Nk is the number of k-points in the
+        provided `kpts`. If `kpts` is a (3,) array, corresponding to a single
+        k-point, the output will be a (Nao, Nao) matrix. If the optional input
+        `kpts` is not specified, this function will read the GDF.kpts for the
+        k-mesh and return a (Nk, Nao, Nao) array.
+
+        Note: This API has changed since PySCF-2.10. In PySCF 2.9 (or older), if
+        `kpts` is not specified, this funciton may return a (Nao, Nao) matrix for
+        the gamma point and a (Nk, Nao, Nao) array for other k-points.
         '''
         cell = self.cell
         kpts, is_single_kpt = _check_kpts(self, kpts)
@@ -396,6 +427,17 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
 
     def get_nuc(self, kpts=None):
         '''Get the periodic nuc-el AO matrix, with G=0 removed.
+
+        The output of this function depends on the input `kpts`. Generally, the
+        output is a (Nk, Nao, Nao) array, where Nk is the number of k-points in the
+        provided `kpts`. If `kpts` is a (3,) array, corresponding to a single
+        k-point, the output will be a (Nao, Nao) matrix. If the optional input
+        `kpts` is not specified, this function will read the GDF.kpts for the
+        k-mesh and return a (Nk, Nao, Nao) array.
+
+        Note: This API has changed since PySCF-2.10. In PySCF 2.9 (or older), if
+        `kpts` is not specified, this funciton may return a (Nao, Nao) matrix for
+        the gamma point and a (Nk, Nao, Nao) array for other k-points.
         '''
         cell = self.cell
         kpts, is_single_kpt = _check_kpts(self, kpts)
@@ -416,18 +458,16 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
     # post-HF methods.
     def get_jk(self, dm, hermi=1, kpts=None, kpts_band=None,
                with_j=True, with_k=True, omega=None, exxdiv=None):
-        if omega is not None:  # J/K for RSH functionals
+        if omega is not None and omega != 0:  # J/K for RSH functionals
             cell = self.cell
             # * AFT is computationally more efficient than GDF if the Coulomb
             #   attenuation tends to the long-range role (i.e. small omega).
             # * Note: changing to AFT integrator may cause small difference to
-            #   the GDF integrator. If a very strict GDF result is desired,
-            #   we can disable this trick by setting
-            #   LONGRANGE_AFT_TURNOVER_THRESHOLD to 0.
+            #   the GDF integrator.
             # * The sparse mesh is not appropriate for low dimensional systems
             #   with infinity vacuum since the ERI may require large mesh to
             #   sample density in vacuum.
-            if (abs(omega) < LONGRANGE_AFT_TURNOVER_THRESHOLD and
+            if (omega > 0 and
                 cell.dimension >= 2 and cell.low_dim_ft_type != 'inf_vacuum'):
                 mydf = aft.AFTDF(cell, self.kpts)
                 ke_cutoff = aft.estimate_ke_cutoff_for_omega(cell, omega)
@@ -470,6 +510,43 @@ class GDF(lib.StreamObject, aft.AFTDFMixin):
         scope of AFTDF/GDF/MDF.
         '''
         return lib.prange(start, stop, step)
+
+    @contextlib.contextmanager
+    def range_coulomb(self, omega):
+        '''Creates a temporary density fitting object for RSH-DF integrals.
+        In this context, only LR or SR integrals for mol and auxmol are computed.
+        '''
+        cell = self.cell
+        if cell.dimension != 0:
+            assert omega < 0
+
+        key = '%.6f' % omega
+        if key in self._rsh_df:
+            rsh_df = self._rsh_df[key]
+        else:
+            rsh_df = self._rsh_df[key] = self.copy().reset()
+            rsh_df._dataname = f'{self._dataname}-sr/{key}'
+            logger.info(self, 'Create RSH-DF object %s for omega=%s', rsh_df, omega)
+
+        auxcell = getattr(self, 'auxcell', None)
+
+        cell_omega = cell.omega
+        cell.omega = omega
+        auxcell_omega = None
+        if auxcell is not None:
+            auxcell_omega = auxcell.omega
+            auxcell.omega = omega
+
+        assert rsh_df.cell.omega == omega
+        if getattr(rsh_df, 'auxcell', None) is not None:
+            assert rsh_df.auxcell.omega == omega
+
+        try:
+            yield rsh_df
+        finally:
+            cell.omega = cell_omega
+            if auxcell_omega is not None:
+                auxcell.omega = auxcell_omega
 
 ################################################################################
 # With this function to mimic the molecular DF.loop function, the pbc gamma
@@ -599,7 +676,8 @@ class CDERIArray:
 
             k_slices = slices[:2]
             a_slices = slices[2:]
-            if isinstance(k_slices[0], int) and isinstance(k_slices[1], int):
+            if (isinstance(k_slices[0], (int, numpy.integer)) and
+                isinstance(k_slices[1], (int, numpy.integer))):
                 return self._load_one(k_slices[0], k_slices[1], ())
         else:
             k_slices = slices

@@ -110,12 +110,16 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
     nocc = mf.cell.nelectron * nkpts
 
     mo_energy = np.sort(np.hstack(mo_energy_kpts))
+    nmo = mo_energy.size
+    if nocc > nmo:
+        raise RuntimeError('Failed to assign occupancies. '
+                           f'Nocc ({nocc}) > Nmo ({nmo})')
     fermi = mo_energy[nocc-1]
     mo_occ_kpts = []
     for mo_e in mo_energy_kpts:
         mo_occ_kpts.append((mo_e <= fermi).astype(np.double))
 
-    if nocc < mo_energy.size:
+    if nocc < nmo:
         logger.info(mf, 'HOMO = %.12g  LUMO = %.12g',
                     mo_energy[nocc-1], mo_energy[nocc])
         if mo_energy[nocc-1]+1e-3 > mo_energy[nocc]:
@@ -187,11 +191,11 @@ def _cast_mol_init_guess(fn):
     return fn_init_guess
 
 class KGHF(khf.KSCF):
-    '''GHF class for PBCs.
+    '''PBC GHF with k-point sampling (default: gamma point).
     '''
     _keys = {'with_soc'}
 
-    def __init__(self, cell, kpts=np.zeros((1,3)),
+    def __init__(self, cell, kpts=None,
                  exxdiv=getattr(__config__, 'pbc_scf_SCF_exxdiv', 'ewald')):
         khf.KSCF.__init__(self, cell, kpts, exxdiv)
         self.with_soc = None
@@ -204,14 +208,17 @@ class KGHF(khf.KSCF):
     get_occ = get_occ
     analyze = khf.analyze
     convert_from_ = pbcghf.GHF.convert_from_
+    gen_response = NotImplemented
 
     to_gpu = lib.to_gpu
 
     def get_hcore(self, cell=None, kpts=None):
         hcore = khf.KSCF.get_hcore(self, cell, kpts)
         hcore = lib.asarray([scipy.linalg.block_diag(h, h) for h in hcore])
-        if self.with_soc:
-            raise NotImplementedError
+        if self.with_soc and cell.has_ecp_soc():
+            from pyscf.pbc.gto.ecp import ecp_int
+            # The ECP SOC contribution = <|1j * s * U_SOC|>
+            hcore = hcore + ecp_int(cell, kpts, intor='ECPso')
         return hcore
 
     def get_ovlp(self, cell=None, kpts=None):

@@ -17,6 +17,7 @@ import unittest
 import tempfile
 from functools import reduce
 import numpy
+import numpy as np
 import scipy.linalg
 from pyscf import gto
 from pyscf import lib
@@ -257,14 +258,21 @@ C    SP
 
     def test_atom_as_file(self):
         ftmp = tempfile.NamedTemporaryFile('w')
-        # file in xyz format
+        # file in raw format
         ftmp.write('He 0 0 0\nHe 0 0 1\n')
         ftmp.flush()
         mol1 = gto.M(atom=ftmp.name)
         self.assertEqual(mol1.natm, 2)
 
+        # file in xyz format
+        ftmp = tempfile.NamedTemporaryFile('w', suffix='.xyz')
+        ftmp.write('2\n\nHe 0 0 0\nHe 0 0 1\n')
+        ftmp.flush()
+        mol1 = gto.M(atom=ftmp.name)
+        self.assertEqual(mol1.natm, 2)
+
         # file in zmatrix format
-        ftmp = tempfile.NamedTemporaryFile('w')
+        ftmp = tempfile.NamedTemporaryFile('w', suffix='.zmat')
         ftmp.write('He\nHe 1 1.5\n')
         ftmp.flush()
         mol1 = gto.M(atom=ftmp.name)
@@ -286,6 +294,10 @@ C    SP
     def test_format_basis(self):
         mol = gto.M(atom = '''O 0 0 0; 1 0 1 0; H 0 0 1''',
                     basis = {8: 'ccpvdz'})
+        self.assertEqual(mol.nao_nr(), 14)
+
+        mol = gto.M(atom = '''O 0 0 0; 1 0 1 0; H 0 0 1''',
+                    basis = {8: 'def2-SVP'})
         self.assertEqual(mol.nao_nr(), 14)
 
         mol = gto.M(atom = '''O 0 0 0; H:1 0 1 0; H@2 0 0 1''',
@@ -632,6 +644,10 @@ O    SP
         mol1.set_geom_(mol0.atom_coords(), unit=1.)
         mol1.set_geom_(mol0.atom_coords(), unit='Ang', inplace=False)
 
+        r = mol1.atom_coords(unit='Ang')
+        mol1.set_geom_(r, unit='Ang')
+        assert np.array_equal(mol1.atom_coords(unit='Ang'), r)
+
     def test_apply(self):
         from pyscf import scf, mp
         self.assertTrue(isinstance(mol0.apply('RHF'), scf.rohf.ROHF))
@@ -808,7 +824,7 @@ O    SP
         mol1.build(False, False)
         gto.basis.load_ecp('lanl08', 'O')
         gto.format_ecp({'O':'lanl08', 1:'lanl2dz'})
-        self.assertRaises(BasisNotFoundError, gto.format_ecp, {'H':'lan2ldz'})
+        self.assertRaises(RuntimeError, gto.format_ecp, {'H':'lan2ldz'})
 
     def test_condense_to_shell(self):
         mol1 = mol0.copy()
@@ -932,15 +948,25 @@ O    SP
         from pyscf import scf, dft, ci, tdscf
         mol = gto.M(atom='He')
         self.assertEqual(mol.HF().__class__, scf.HF(mol).__class__)
-        self.assertEqual(mol.KS().__class__, dft.KS(mol).__class__)
-        self.assertEqual(mol.UKS().__class__, dft.UKS(mol).__class__)
+        self.assertEqual(mol.KS(xc='pbe').__class__, dft.KS(mol, xc='pbe').__class__)
+        self.assertEqual(mol.KS(xc='pbe').xc, dft.KS(mol, xc='pbe').xc)
+        self.assertEqual(mol.UKS(xc='pbe').__class__, dft.UKS(mol, xc='pbe').__class__)
+        self.assertEqual(mol.UKS(xc='pbe').xc, dft.UKS(mol, xc='pbe').xc)
         self.assertEqual(mol.CISD().__class__, ci.cisd.RCISD)
         self.assertEqual(mol.TDA().__class__, tdscf.rhf.TDA)
+        self.assertEqual(mol.TDA(xc='pbe0').__class__, tdscf.rks.TDA)
         self.assertEqual(mol.dTDA().__class__, tdscf.rks.dTDA)
         self.assertEqual(mol.TDBP86().__class__, tdscf.rks.TDDFTNoHybrid)
         self.assertEqual(mol.TDB3LYP().__class__, tdscf.rks.TDDFT)
         self.assertRaises(AttributeError, lambda: mol.xyz)
-        self.assertRaises(AttributeError, lambda: mol.TDxyz)
+        self.assertRaises(AttributeError, lambda: mol.TDxyz())
+
+        mol = gto.M(atom='He', symmetry=True)
+        self.assertEqual(mol.HF().__class__, scf.HF(mol).__class__)
+        self.assertEqual(mol.KS().__class__, dft.KS(mol).__class__)
+        self.assertEqual(mol.UKS().__class__, dft.UKS(mol).__class__)
+        self.assertEqual(mol.RKSpU(U_idx=['2p'], U_val=[1.]).__class__,
+                         dft.RKSpU(mol, U_idx=['2p'], U_val=[1.]).__class__)
 
     def test_ao2mo(self):
         mol = gto.M(atom='He')
@@ -1075,6 +1101,24 @@ H    P
         v0 = u.T.dot(mol.intor('int1e_nuc')).dot(u)
         v1 = mol1.intor('int1e_nuc')
         self.assertAlmostEqual(abs(v0 - v1).max(), 0, 12)
+
+    def test_to_cell(self):
+        from pyscf.dft import numint
+        mol = gto.M(atom='''
+            O   0.   0.       0.
+            H   0.   -0.757   0.587
+            H   0.   0.757    0.587''', basis='ccpvdz')
+        cell = mol.to_cell()
+        mf = mol.RHF().run()
+        dm = mf.make_rdm1()
+        a = cell.lattice_vectors()
+        edge_grids = np.vstack([
+            a * -.5,
+            a * .5,
+        ])
+        ao = numint.eval_ao(mol, edge_grids)
+        rho = numint.eval_rho(mol, ao, dm)
+        self.assertTrue(all(abs(rho) < 1e-7))
 
 if __name__ == "__main__":
     print("test mole.py")

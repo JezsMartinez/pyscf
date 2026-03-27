@@ -47,7 +47,10 @@ class KnownValues(unittest.TestCase):
         # If basis-set-exchange pacakge is installed, this test will fail.
         # bse-0.9 produces 13 shells due to round-off errors.
         # The correct number of generated basis functions should be 12.
-        self.assertEqual(len(auxbasis['H']), 12)
+        if bse.basis_set_exchange:
+            self.assertEqual(len(auxbasis['H']), 13)
+        else:
+            self.assertEqual(len(auxbasis['H']), 12)
 
         mol = gto.M(
             verbose = 0,
@@ -122,6 +125,10 @@ class KnownValues(unittest.TestCase):
         else:
             self.assertEqual(len(auxbasis['O']), 35)
             self.assertEqual(len(auxbasis['H']), 3)
+
+        mol = gto.M(atom='C1 0 0 0', basis={'C': [[0, [1, 1]]]})
+        auxmol = df.addons.make_auxmol(mol)
+        self.assertEqual(auxmol.nbas, 1)
 
     def test_default_auxbasis(self):
         mol = gto.M(atom='He 0 0 0; O 0 0 1', basis='ccpvdz')
