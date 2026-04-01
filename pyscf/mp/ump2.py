@@ -539,7 +539,7 @@ class _ChemistsERIs(mp2._ChemistsERIs):
                 if mp._scf.vemb_m is not None:
                     mat = mp._scf.vemb_m
                 else:
-                    mat = mp._scf.vemb_mat()
+                    mat,_ = mp._scf.vemb_mat()
                 #print(mat[0][0][0])
                 fockao += mat 
 #                print("Final fm mp2: ",fockao[0][0][0])

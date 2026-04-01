@@ -809,7 +809,7 @@ class _ChemistsERIs(ccsd._ChemistsERIs):
             if mp._scf.vemb_m is not None:
                 mat = mp._scf.vemb_m
             else:
-                mat = mp._scf.vemb_mat()
+                mat,_ = mp._scf.vemb_mat()
             #print(mat[0][0][0])
             fockao += mat 
 #            print("Final fm ccsd: ",fockao[0][0][0])

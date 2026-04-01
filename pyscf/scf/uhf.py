@@ -284,7 +284,7 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
         if mf.vemb_m is not None:
             mat = mf.vemb_m
         else:
-            mat = mf.vemb_mat()
+            mat,_ = mf.vemb_mat()
         f += mat
     
     return numpy.array(f)
@@ -794,6 +794,14 @@ class UHF(hf.SCF):
         # self.mo_energy => [mo_energy_a, mo_energy_b]
         self.nelec = None
         # PRG 2021
+        self.extemb = mol.extemb
+        self.vemb = mol.vemb
+        self.ex_grids_coord = mol.ex_grids_coord  #External Coodinates of the Grid
+        self.ex_grids_weights = mol.ex_grids_weights #External weights of the Grid
+        self.ext_spline = mol.ext_spline
+        self.spline_values = mol.spline_values #External Emb Potential Spline into a Custom Grid
+        self.vemb_m = mol.vemb_m  # </mu|Vemb|/nu> Matrix
+
 
     @property
     def nelec(self):
