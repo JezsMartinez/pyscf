@@ -535,14 +535,11 @@ class _ChemistsERIs(mp2._ChemistsERIs):
             fockao = mp._scf.get_fock(vhf=vhf, dm=dm)
             #:PRG:
             if mp._scf.vemb:
-#                print("Initial fm mp2: ",fockao[0][0][0])
-                if mp._scf.vemb_m is not None:
-                    mat = mp._scf.vemb_m
+                mat = mp._scf.vemb_m if mp._scf.vemb_m is not None else mp._scf.vemb_mat()
+                if isinstance(f, tuple):
+                     fockao = (fockao[0] + mat[0], fockao[1] + mat[1])
                 else:
-                    mat,_ = mp._scf.vemb_mat()
-                #print(mat[0][0][0])
-                fockao += mat 
-#                print("Final fm mp2: ",fockao[0][0][0])
+                     fockao += mat
             #:PRG:
             focka = mo_a.conj().T.dot(fockao[0]).dot(mo_a)
             fockb = mo_b.conj().T.dot(fockao[1]).dot(mo_b)

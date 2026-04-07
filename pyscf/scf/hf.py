@@ -458,14 +458,6 @@ def init_guess_by_minao(mol):
         if not gto.is_ghost_atom(symb):
             occ.append(occdic[symb])
             new_atom.append(mol._atom[ia])
-
-    if not occ:
-        # A system with only ghost atoms. (issue 3155)
-        nao = mol.nao
-        occ = numpy.zeros(nao)
-        dm = mo_coeff = numpy.zeros((nao, nao))
-        return lib.tag_array(dm, mo_coeff=mo_coeff, mo_occ=occ)
-
     occ = numpy.hstack(occ)
 
     pmol = gto.Mole()
@@ -1233,6 +1225,15 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     if h1e is None: h1e = mf.get_hcore()
     if vhf is None: vhf = mf.get_veff(mf.mol, dm)
     f = h1e + vhf
+    #:PRG:
+    if mf.vemb:
+        print('HF vemb')
+        mat = mf.vemb_m if mf.vemb_m is not None else mf.vemb_mat()
+        if isinstance(f, tuple):
+             f = (f[0] + mat[0], f[1] + mat[1])
+        else:
+             f = f + mat
+
     if cycle < 0 and diis is None:  # Not inside the SCF iteration
         return f
 
@@ -2629,6 +2630,7 @@ class RHF(SCF):
         from pyscf import dft
         return self._transfer_attrs_(dft.RKS(self.mol, xc=xc))
 
+    # FIXME: consider the density_fit, x2c and soscf decoration
     to_gpu = lib.to_gpu
 
 def _hf1e_scf(mf, *args):

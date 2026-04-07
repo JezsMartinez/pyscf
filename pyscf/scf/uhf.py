@@ -248,6 +248,15 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     f = numpy.asarray(h1e) + vhf
     if f.ndim == 2:
         f = (f, f)
+    #:PRG:
+    if mf.vemb:
+        print('UHF vemb')
+        mat = mf.vemb_m if mf.vemb_m is not None else mf.vemb_mat()
+        if isinstance(f, tuple):
+             f = (f[0] + mat[0], f[1] + mat[1])
+        else:
+             f = f + mat
+
     if cycle < 0 and diis is None:  # Not inside the SCF iteration
         return f
 
@@ -279,14 +288,6 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
     if abs(shifta)+abs(shiftb) > 1e-4:
         f = (hf.level_shift(s1e, dm[0], f[0], shifta),
              hf.level_shift(s1e, dm[1], f[1], shiftb))
-    #:PRG:
-    if mf.vemb and cycle >0:
-        if mf.vemb_m is not None:
-            mat = mf.vemb_m
-        else:
-            mat,_ = mf.vemb_mat()
-        f += mat
-    
     return numpy.array(f)
 
 def get_occ(mf, mo_energy=None, mo_coeff=None):
@@ -794,14 +795,6 @@ class UHF(hf.SCF):
         # self.mo_energy => [mo_energy_a, mo_energy_b]
         self.nelec = None
         # PRG 2021
-        self.extemb = mol.extemb
-        self.vemb = mol.vemb
-        self.ex_grids_coord = mol.ex_grids_coord  #External Coodinates of the Grid
-        self.ex_grids_weights = mol.ex_grids_weights #External weights of the Grid
-        self.ext_spline = mol.ext_spline
-        self.spline_values = mol.spline_values #External Emb Potential Spline into a Custom Grid
-        self.vemb_m = mol.vemb_m  # </mu|Vemb|/nu> Matrix
-
 
     @property
     def nelec(self):
