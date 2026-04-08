@@ -806,7 +806,7 @@ class _ChemistsERIs(ccsd._ChemistsERIs):
         #:PRG: 2026
         if mycc._scf.vemb:
             mat = mycc._scf.vemb_m if mycc._scf.vemb_m is not None else mycc._scf.vemb_mat()
-            if isinstance(f, tuple):
+            if isinstance(fockao, tuple):
                  fockao = (fockao[0] + mat[0], fockao[1] + mat[1])
             else:
                  fockao = fockao + mat
