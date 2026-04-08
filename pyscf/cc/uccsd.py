@@ -804,8 +804,8 @@ class _ChemistsERIs(ccsd._ChemistsERIs):
         vhf = mycc._scf.get_veff(mycc.mol, dm)
         fockao = mycc._scf.get_fock(vhf=vhf, dm=dm)
         #:PRG: 2026
-        if mp._scf.vemb:
-            mat = mp._scf.vemb_m if mp._scf.vemb_m is not None else mp._scf.vemb_mat()
+        if mycc._scf.vemb:
+            mat = mycc._scf.vemb_m if mycc._scf.vemb_m is not None else mycc._scf.vemb_mat()
             if isinstance(f, tuple):
                  fockao = (fockao[0] + mat[0], fockao[1] + mat[1])
             else:
