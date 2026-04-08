@@ -4370,8 +4370,6 @@ def extract_pgto_params(mol, op='diffuse'):
         # A quick estimation for the resolution of planewaves that each
         # primitive GTO requires
         ke = np.log(c**2 / precision * 50**l + 1e-200) * e
-        # groupby.argmax()
-        ke_order = np.argsort(-ke)
         idx = lib.groupby(basis_id, ke, 'argmax')
     return e[idx], c[idx]
 
