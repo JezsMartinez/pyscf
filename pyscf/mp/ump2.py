@@ -536,7 +536,7 @@ class _ChemistsERIs(mp2._ChemistsERIs):
             #:PRG:
             if mp._scf.vemb:
                 mat = mp._scf.vemb_m if mp._scf.vemb_m is not None else mp._scf.vemb_mat()
-                if isinstance(f, tuple):
+                if isinstance(fockao, tuple):
                      fockao = (fockao[0] + mat[0], fockao[1] + mat[1])
                 else:
                      fockao += mat
