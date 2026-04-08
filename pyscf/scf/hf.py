@@ -875,8 +875,8 @@ def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
             vembf[1]=spline_values
             #print(vembf[0][0],vembf[1][0])
     else:
-       print("Using Spline Function on PySCF on a Custom Grid")
-       vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
+        print("Using Spline Function on PySCF on a Custom Grid")
+        vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
     #print(vembf[0])
     mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u. 
     return mat,vembf
@@ -1230,9 +1230,9 @@ def get_fock(mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
         print('HF vemb')
         mat = mf.vemb_m if mf.vemb_m is not None else mf.vemb_mat()
         if isinstance(f, tuple):
-             f = (f[0] + mat[0], f[1] + mat[1])
+            f = (f[0] + mat[0], f[1] + mat[1])
         else:
-             f = f + mat
+            f = f + mat
 
     if cycle < 0 and diis is None:  # Not inside the SCF iteration
         return f

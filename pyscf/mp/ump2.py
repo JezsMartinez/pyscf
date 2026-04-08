@@ -537,9 +537,9 @@ class _ChemistsERIs(mp2._ChemistsERIs):
             if mp._scf.vemb:
                 mat = mp._scf.vemb_m if mp._scf.vemb_m is not None else mp._scf.vemb_mat()
                 if isinstance(fockao, tuple):
-                     fockao = (fockao[0] + mat[0], fockao[1] + mat[1])
+                    fockao = (fockao[0] + mat[0], fockao[1] + mat[1])
                 else:
-                     fockao += mat
+                    fockao += mat
             #:PRG:
             focka = mo_a.conj().T.dot(fockao[0]).dot(mo_a)
             fockb = mo_b.conj().T.dot(fockao[1]).dot(mo_b)
