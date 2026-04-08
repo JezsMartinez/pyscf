@@ -794,7 +794,7 @@ def get_value_at_points_new(vemb_fft, points):
 
 def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
     '''
-    Function to spline a field on a regular FFT grid to a 
+    Function to spline a field on a regular FFT grid to a
     custom grid.
     INPUT:
     mf: SCF class of PySCF
@@ -871,7 +871,7 @@ def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
     else:
         print("Using Spline Function on PySCF on a Custom Grid")
         vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
-    mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u. 
+    mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u.
     return mat,vembf
 
 #END :PRG: contribution
