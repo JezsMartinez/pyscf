@@ -768,7 +768,7 @@ def get_value_at_points_new(vemb_fft, points):
     '''Get values of an Embedding Potential into and External Grid
 
     Kwargs:
-        vemb_fft: Embedding potential object from dftpy 
+        vemb_fft: Embedding potential object from dftpy
         points: np.array wit x,y,z GRID coordinates
         '''
     import scipy.ndimage as ndimage
@@ -776,7 +776,7 @@ def get_value_at_points_new(vemb_fft, points):
 
     if vemb_fft.spl_coeffs is None:
         vemb_fft._calc_spline()
-    nr=vemb_fft.grid.nr  #Shape of the Grid, Grid points for each direction. 
+    nr=vemb_fft.grid.nr  #Shape of the Grid, Grid points for each direction
     gridf=vemb_fft.grid
 
     metric = numpy.dot(gridf.lattice, gridf.lattice.T)
@@ -787,7 +787,8 @@ def get_value_at_points_new(vemb_fft, points):
         points[:,i] *= nr[i] #Multiply each coordinate by the Grid points for each direction.
     p2=(numpy.rint(points)).astype(int) #Round coordinates to the nearest integer
     p2=numpy.mod(p2, vemb_fft.grid.nr) #arr1 % arr2 #Remainder of Div.
-    values=vemb_fft[p2[:,0],p2[:,1],p2[:,2]] #Getting the nearest point among the Grid and the Coord (The values of the field)
+    #Getting the nearest point among the Grid and the Coord (The values of the field)
+    values=vemb_fft[p2[:,0],p2[:,1],p2[:,2]]
 
     return values
 
@@ -870,7 +871,6 @@ def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
     else:
         print("Using Spline Function on PySCF on a Custom Grid")
         vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
-    #print(vembf[0])
     mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u. 
     return mat,vembf
 
