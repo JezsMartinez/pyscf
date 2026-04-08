@@ -795,17 +795,13 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
     '''
     Function to spline a field on a regular FFT grid to a 
     custom grid.
-    
     INPUT:
     mf: SCF class of PySCF
     points: np.array wit x,y,z GRID coordinates
     filename: External Embedding Potential
-    
     OUTPUT:
     vemb: numpy array of shape len(mf_grids_coord[:,0])
-    
     '''
-
     if ".pp" in filename:
         format='qepp'
     else:
@@ -825,15 +821,12 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
 def get_vemb_mu_nu(mf,vembf,ex_grids_coord,ex_grids_weights):
     '''
     Function returns the <mu|vemb|nu> matrix where vemb is a function on pyscf's dft grid.
-    
     INPUT:
     mf: PySCF SCF class
     vemb: numpy array of size (nspin,nao,nao)
-    
     '''
     from pyscf.dft.numint import eval_ao, _scale_ao, _dot_ao_ao
     from pyscf.dft.gen_grid import BLKSIZE
-
     ao=eval_ao(mf.mol,ex_grids_coord,deriv=0)
     ngrids, nao = ao.shape
     nspin=numpy.shape(mf.nelec)[0]
