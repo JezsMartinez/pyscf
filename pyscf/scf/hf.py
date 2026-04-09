@@ -812,13 +812,20 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
     OUTPUT:
     vemb: numpy array of shape len(mf_grids_coord[:,0])
     '''
-    if ".pp" in filename or ".snpy" in filename or ".xsf" in filename:
-        format='qepp'
+    from dftpy.formats import io
+    ext = filename.lower().split('.')[-1]
+
+    if ext == "pp":
+        format = 'qepp'
+    elif ext in ("snpy", "xsf"):
+        ions, vemb_fft, _ = io.read(filename, kind='field')
+        filename = filename.rsplit('.', 1)[0] + '.pp'
+        io.write_potential(filename, data=vemb_fft, ions=ions)
+        format = 'qepp'
     else:
-        raise Exception("Only PP SNPY XSF format available for V_emb.")
+        raise ValueError("Only .pp, .snpy, .xsf formats are supported for V_emb.")
 
     if format=='qepp':
-        from dftpy.formats import io
         ions,vemb_fft,cutoffvars=io.read(filename,kind='field')
     if mf.nelec[0] == mf.nelec[1]:
         vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
