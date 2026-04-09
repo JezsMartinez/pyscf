@@ -812,10 +812,10 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
     OUTPUT:
     vemb: numpy array of shape len(mf_grids_coord[:,0])
     '''
-    if ".pp" in filename:
+    if ".pp" in filename or ".snpy" in filename or ".xsf" in filename:
         format='qepp'
     else:
-        raise Exception("Only PP format available for V_emb.")
+        raise Exception("Only PP SNPY XSF format available for V_emb.")
 
     if format=='qepp':
         from dftpy.formats import io
