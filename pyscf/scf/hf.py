@@ -773,15 +773,14 @@ def get_init_guess(mol, key='minao', **kwargs):
 
 ###################:PRG:
 
-def get_value_at_points_new(vemb_fft, points):
-    '''Get values of an Embedding Potential into and External Grid
+def get_value_at_points_new(vemb_fft, points, fast=None):
+    '''Get values of an Embedding Potential into and External Grid only for orthorombic lattice
 
     Kwargs:
         vemb_fft: Embedding potential object from dftpy
         points: np.array wit x,y,z GRID coordinates
         '''
     import scipy.ndimage as ndimage
-    from scipy import interpolate
 
     if vemb_fft.spl_coeffs is None:
         vemb_fft._calc_spline()
@@ -791,17 +790,27 @@ def get_value_at_points_new(vemb_fft, points):
     metric = numpy.dot(gridf.lattice, gridf.lattice.T)
     ll = numpy.sqrt(numpy.diag(metric))
 
+    p = points.copy()
     for i in range(3):
-        points[:,i] /= ll[i] #Divide each coordinate by the lattice parameters
-        points[:,i] *= nr[i] #Multiply each coordinate by the Grid points for each direction.
-    p2=(numpy.rint(points)).astype(int) #Round coordinates to the nearest integer
-    p2=numpy.mod(p2, vemb_fft.grid.nr) #arr1 % arr2 #Remainder of Div.
-    #Getting the nearest point among the Grid and the Coord (The values of the field)
-    values=vemb_fft[p2[:,0],p2[:,1],p2[:,2]]
+        p[:, i] /= ll[i] #Divide each coordinate by the lattice parameters
+        p[:, i] *= nr[i] #Multiply each coordinate by the Grid points for each direction.
 
+    if fast:
+        p2=numpy.floor(p+0.5).astype(int)  #Round coordinates to the nearest integer
+        #Getting the nearest point among the Grid and the Coord (The values of the field)
+        for i in range(3): # do it per each dimension
+            p2[:, i] = numpy.mod(p2[:, i], nr[i])
+        values=vemb_fft[p2[:,0],p2[:,1],p2[:,2]]
+    else:
+        for i in range(3):
+            p[:, i] = numpy.mod(p[:, i], nr[i])
+        values = ndimage.map_coordinates(vemb_fft.spl_coeffs,
+                                        [p[:, 0], p[:, 1], p[:, 2]],
+                                        mode="wrap")
     return values
 
-def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
+
+def Spline_FFT_to_grid(mf,filename,ex_grids_coord, fast=None):
     '''
     Function to spline a field on a regular FFT grid to a
     custom grid.
@@ -828,11 +837,14 @@ def Spline_FFT_to_grid(mf,filename,ex_grids_coord):
     if format=='qepp':
         ions,vemb_fft,cutoffvars=io.read(filename,kind='field')
     if mf.nelec[0] == mf.nelec[1]:
-        vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
+        vemb = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64),
+                                       fast=fast)
     else:
         vemb=numpy.empty((2,ex_grids_coord.shape[0]))
-        vemb[0] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
-        vemb[1] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64))
+        vemb[0] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64),
+                                       fast=fast)
+        vemb[1] = get_value_at_points_new(vemb_fft,numpy.array(ex_grids_coord, dtype=numpy.float64),
+                                       fast=fast)
     return vemb
 
 def get_vemb_mu_nu(mf,vembf,ex_grids_coord,ex_grids_weights):
@@ -872,7 +884,7 @@ def get_vemb_mu_nu(mf,vembf,ex_grids_coord,ex_grids_weights):
     return mat
 
 
-def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
+def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights, fast=False):
     ''' Get the Embedding Potential in the AO basis'''
     if mf.ext_spline:
         print("Using External Spline Values on a Custom Grid")
@@ -886,7 +898,7 @@ def vemb_mat(mf,extemb,spline_values,ex_grids_coord,ex_grids_weights):
             #print(vembf[0][0],vembf[1][0])
     else:
         print("Using Spline Function on PySCF on a Custom Grid")
-        vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord)
+        vembf = Spline_FFT_to_grid(mf,extemb,ex_grids_coord, fast=fast)
     mat = get_vemb_mu_nu(mf,vembf*0.5,ex_grids_coord,ex_grids_weights) # *.5 because Ry to a.u.
     return mat,vembf
 
@@ -2137,7 +2149,8 @@ This is the Gaussian fit version as described in doi:10.1063/5.0004046.''')
     # to check_convergence can overwrite the default convergence criteria
     check_convergence = None
 
-    def vemb_mat(self,mol=None,extemb=None,spline_values=None,ex_grids_coord=None,ex_grids_weights=None):
+    def vemb_mat(self,mol=None,extemb=None,spline_values=None,ex_grids_coord=None,ex_grids_weights=None,
+                fast=False):
 
         if mol is None: mol = self.mol
 
@@ -2146,7 +2159,7 @@ This is the Gaussian fit version as described in doi:10.1063/5.0004046.''')
 
         if ex_grids_coord is None: ex_grids_coord=mol.ex_grids_coord
         if ex_grids_weights is None: ex_grids_weights=mol.ex_grids_weights
-        return vemb_mat(self,extemb,spline_values,ex_grids_coord,ex_grids_weights)
+        return vemb_mat(self,extemb,spline_values,ex_grids_coord,ex_grids_weights,fast)
 
     def scf(self, dm0=None, **kwargs):
         '''SCF main driver
