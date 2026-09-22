@@ -786,7 +786,7 @@ def get_value_at_points_new(vemb_fft, points, fast=None):
         vemb_fft: Embedding potential object from dftpy
         points: np.array wit x,y,z GRID coordinates
         '''
-    import scipy.ndimage as ndimage
+    from scipy import ndimage
 
     if vemb_fft.spl_coeffs is None:
         vemb_fft._calc_spline()
