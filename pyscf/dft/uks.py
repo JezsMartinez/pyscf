@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2014-2019 The PySCF Developers. All Rights Reserved.
+# Copyright 2014-2026 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ from pyscf.lib import logger
 from pyscf.scf import hf, uhf
 from pyscf.dft import rks
 
-def get_veff(ks, mol=None, dm=None, dm_last=0, vhf_last=0, hermi=1):
+def get_veff(ks, mol=None, dm=None, dm_last=None, vhf_last=None, hermi=1):
     '''Coulomb + XC functional for UKS.  See pyscf/dft/rks.py
     :func:`get_veff` fore more details.
     '''
@@ -38,7 +38,8 @@ def get_veff(ks, mol=None, dm=None, dm_last=0, vhf_last=0, hermi=1):
     if dm.ndim == 2:  # RHF DM
         logger.warn(ks, 'Incompatible dm dimension. Treat dm as RHF density matrix.')
         dm = numpy.repeat(dm[None]*.5, 2, axis=0)
-    ks.initialize_grids(mol, dm)
+    if ks.grids.coords is None:
+        ks.initialize_grids(mol, dm)
 
     t0 = (logger.process_clock(), logger.perf_counter())
 
@@ -65,6 +66,7 @@ def get_veff(ks, mol=None, dm=None, dm_last=0, vhf_last=0, hermi=1):
         t0 = logger.timer(ks, 'vxc', *t0)
 
     incremental_jk = (ks._eri is None and ks.direct_scf and
+                      dm_last is not None and
                       getattr(vhf_last, 'vj', None) is not None)
     if incremental_jk:
         dm_last = numpy.asarray(dm_last)

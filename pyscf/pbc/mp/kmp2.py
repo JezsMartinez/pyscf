@@ -416,10 +416,11 @@ def get_nocc(mp, per_kpoint=False):
     '''
     for i, moocc in enumerate(mp.mo_occ):
         if np.any(moocc % 1 != 0):
-            raise RuntimeError("Fractional occupation numbers encountered @ kp={:d}: {}. This may have been caused by "
-                               "smearing of occupation numbers in the mean-field calculation. If so, consider "
-                               "executing mf.smearing_method = False; mf.mo_occ = mf.get_occ() prior to calling "
-                               "this".format(i, moocc))
+            raise RuntimeError(
+                f"Fractional occupation numbers encountered @ kp={i:d}: {moocc}. "
+                "This may have been caused by smearing of occupation numbers in the mean-field "
+                "calculation. If so, consider executing mf.smearing_method = False; "
+                "mf.mo_occ = mf.get_occ() prior to calling this")
     if mp._nocc is not None:
         return mp._nocc
     elif mp.frozen is None:
@@ -482,13 +483,22 @@ def get_nmo(mp, per_kpoint=False):
     if mp._nmo is not None:
         return mp._nmo
 
+    if hasattr(mp, 'mo_energy') and mp.mo_energy is not None:
+        from pyscf.pbc.scf.hf import INVALID_ORBITAL_ENERGY
+        if isinstance(mp.mo_energy, np.ndarray):
+            nmo = np.count_nonzero(mp.mo_energy != INVALID_ORBITAL_ENERGY, axis=1)
+        else:
+            nmo = np.array([len(x) for x in mp.mo_energy])
+    else:
+        nmo = np.full(mp.nkpts, len(mp.mo_occ[0]), dtype=int)
+
     if mp.frozen is None:
-        nmo = [len(mp.mo_occ[ikpt]) for ikpt in range(mp.nkpts)]
+        pass
     elif isinstance(mp.frozen, (int, np.integer)):
-        nmo = [len(mp.mo_occ[ikpt]) - mp.frozen for ikpt in range(mp.nkpts)]
+        nmo = nmo - mp.frozen
     elif isinstance(mp.frozen[0], (int, np.integer)):
         [_frozen_sanity_check(mp.frozen, mp.mo_occ[ikpt], ikpt) for ikpt in range(mp.nkpts)]
-        nmo = [len(mp.mo_occ[ikpt]) - len(mp.frozen) for ikpt in range(mp.nkpts)]
+        nmo = nmo - len(mp.frozen)
     elif isinstance(mp.frozen, (list, np.ndarray)):
         nkpts = len(mp.frozen)
         if nkpts != mp.nkpts:
@@ -497,11 +507,11 @@ def get_nmo(mp, per_kpoint=False):
                                '(length = %d)' % (mp.nkpts, mp.frozen, nkpts))
         [_frozen_sanity_check(fro, mo_occ, ikpt) for ikpt, fro, mo_occ in zip(range(nkpts), mp.frozen, mp.mo_occ)]
 
-        nmo = [len(mp.mo_occ[ikpt]) - len(mp.frozen[ikpt]) for ikpt in range(nkpts)]
+        nmo = np.array([n - len(c) for n, c in zip(nmo, mp.frozen)])
     else:
         raise NotImplementedError
 
-    assert all(np.array(nmo) > 0), ('Must have a positive number of orbitals!\n\nnmo %s\nfrozen %s\nmo_occ %s' %
+    assert all(nmo > 0), ('Must have a positive number of orbitals!\n\nnmo %s\nfrozen %s\nmo_occ %s' %
            (nmo, mp.frozen, mp.mo_occ))
 
     if not per_kpoint:
@@ -509,8 +519,9 @@ def get_nmo(mp, per_kpoint=False):
         # nmo has enough room for max(nocc) + max(nvir) number of orbitals for occupied
         # and virtual space
         nocc = mp.get_nocc(per_kpoint=True)
-        nmo = np.max(nocc) + np.max(np.array(nmo) - np.array(nocc))
-
+        nmo = np.max(nocc) + np.max(nmo - np.array(nocc))
+    else:
+        nmo = nmo.tolist()
     return nmo
 
 
@@ -528,6 +539,10 @@ def get_frozen_mask(mp):
 
     '''
     moidx = [np.ones(x.size, dtype=bool) for x in mp.mo_occ]
+    if getattr(mp, 'mo_energy', None) is not None:
+        from pyscf.pbc.scf.hf import INVALID_ORBITAL_ENERGY
+        for k, idx in enumerate(moidx):
+            idx[np.asarray(mp.mo_energy[k]) == INVALID_ORBITAL_ENERGY] = False
     if mp.frozen is None:
         pass
     elif isinstance(mp.frozen, (int, np.integer)):

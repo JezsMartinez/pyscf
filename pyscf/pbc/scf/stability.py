@@ -31,7 +31,7 @@ import scipy.linalg
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.pbc.scf import newton_ah
-from pyscf.pbc.scf import _response_functions  # noqa
+from pyscf.pbc.scf import _response_functions
 
 def rhf_stability(mf, internal=True, external=False, verbose=None, return_status=False):
     mo_i = mo_e = None
@@ -140,12 +140,7 @@ def _gen_hop_rhf_external(mf, verbose=None):
             x2[k] = numpy.einsum('ps,sq->pq', fvv[k], x1[k])
             x2[k]-= numpy.einsum('ps,rp->rs', foo[k], x1[k])
             x2[k]+= reduce(numpy.dot, (orbv[k].T.conj(), v1ao[k], orbo[k]))
-
-        # The displacement x2 corresponds to the response of rotation for bra.
-        # Hessian*x also provides the rotation for ket which equals to
-        # x2.T.conj(). The overall displacement is x2 + x2.T.conj(). This is
-        # the reason of x2.real below
-        return numpy.hstack([x.real.ravel() for x in x2])
+        return numpy.hstack([x.ravel() for x in x2])
 
     return hop_rhf2uhf, hdiag
 
@@ -266,7 +261,7 @@ def _gen_hop_uhf_external(mf, verbose=None):
             x2ba[k]-= numpy.einsum('qs,ps->pq', fooa[k], x1ba[k])
             x2ab[k] += reduce(numpy.dot, (orbva[k].T.conj(), v1ao[0][k], orbob[k]))
             x2ba[k] += reduce(numpy.dot, (orbvb[k].T.conj(), v1ao[1][k], orboa[k]))
-        return numpy.hstack([x.real.ravel() for x in (x2ab+x2ba)])
+        return numpy.hstack([x.ravel() for x in (x2ab+x2ba)])
 
     return hop_uhf2ghf, hdiag2
 

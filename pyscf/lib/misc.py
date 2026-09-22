@@ -22,6 +22,7 @@ Some helper functions
 
 import os
 import sys
+import atexit
 import time
 import random
 import platform
@@ -91,36 +92,105 @@ c_double_p = ctypes.POINTER(ctypes.c_double)
 c_int_p = ctypes.POINTER(ctypes.c_int)
 c_null_ptr = ctypes.POINTER(ctypes.c_void_p)
 
+_dll_deps = {
+    'libcgto':       ['libcint'],
+    'libcvhf':       ['libcint'],
+    'libao2mo':      ['libcint', 'libcvhf'],
+    'libdft':        ['libcvhf', 'libcgto', 'libcint'],
+    'libpbc':        ['libcint', 'libcgto'],
+    'libri':         ['libao2mo', 'libcvhf', 'libcgto', 'libcint'],
+    # Windows wheels may bundle lib-prefixed support DLLs, while conda-forge
+    # provides xc.dll and xcfun.dll. Prefer the bundled names, then fall back
+    # to the environment-provided names.
+    'libxc_itrf':    [('libxc', 'xc')],
+    'libxcfun_itrf': [('libxcfun', 'xcfun')],
+}
+
+def _load_dependency(libname):
+    if isinstance(libname, str):
+        return load_library(libname)
+    if isinstance(libname, tuple):
+        for candidate in libname:
+            try:
+                return load_library(candidate)
+            except OSError:
+                pass
+        raise OSError(f'Library candidates {libname} not found')
+
+    raise TypeError(f'Unsupported dependency spec: {libname!r}')
+
 @functools.lru_cache(128)
 def load_library(libname):
+    lib = None
+    _loaderpath = os.path.dirname(__file__)
     try:
-        _loaderpath = os.path.dirname(__file__)
-        return numpy.ctypeslib.load_library(libname, _loaderpath)
+        lib = numpy.ctypeslib.load_library(libname, _loaderpath)
     except OSError:
+        pass
+
+    if lib is None and sys.platform == 'win32':
+        for env_path in [os.path.join(sys.prefix, 'Library', 'bin'),
+                         os.path.join(sys.prefix, 'Library', 'lib')]:
+            try:
+                lib = numpy.ctypeslib.load_library(libname, env_path)
+                break
+            except OSError:
+                pass
+
+    if lib is None:
         from pyscf import __path__ as ext_modules
         for path in ext_modules:
             libpath = os.path.join(path, 'lib')
             if os.path.isdir(libpath):
                 for files in os.listdir(libpath):
                     if files.startswith(libname):
-                        return numpy.ctypeslib.load_library(libname, libpath)
-        raise
+                        lib = numpy.ctypeslib.load_library(libname, libpath)
+                        break
+                if lib is not None:
+                    break
+        if lib is None:
+            raise OSError(f'Library {libname} not found')
+
+    if sys.platform == 'win32' and libname in _dll_deps:
+        deps = [_load_dependency(d) for d in _dll_deps[libname]]
+        lib = make_dll_wrapper(lib, *deps)
+    return lib
+
+
+def make_dll_wrapper(lib, *fallbacks):
+    if sys.platform != 'win32':
+        return lib
+    class _DllWrapper:
+        def __init__(self, primary, *fallbacks):
+            object.__setattr__(self, '_primary', primary)
+            object.__setattr__(self, '_fallbacks', fallbacks)
+        def __getattr__(self, name):
+            for dll in (self._primary,) + self._fallbacks:
+                try:
+                    return getattr(dll, name)
+                except AttributeError:
+                    pass
+            raise AttributeError(f"function '{name}' not found")
+    return _DllWrapper(lib, *fallbacks)
 
 #Fixme, the standard resource module gives wrong number when objects are released
 # http://fa.bianp.net/blog/2013/different-ways-to-get-memory-consumption-or-lessons-learned-from-memory_profiler/#fn:1
 #or use slow functions as memory_profiler._get_memory did
-CLOCK_TICKS = os.sysconf("SC_CLK_TCK")
-PAGESIZE = os.sysconf("SC_PAGE_SIZE")
 def current_memory():
     '''Return the size of used memory and allocated virtual memory (in MB)'''
-    #import resource
-    #return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000
     if sys.platform.startswith('linux'):
+        pagesize = os.sysconf("SC_PAGE_SIZE")
         with open("/proc/%s/statm" % os.getpid()) as f:
-            vms, rss = [int(x)*PAGESIZE for x in f.readline().split()[:2]]
+            vms, rss = [int(x) * pagesize for x in f.readline().split()[:2]]
             return rss/1e6, vms/1e6
     else:
-        return 0, 0
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            mem_info = process.memory_info()
+            return mem_info.rss/1e6, mem_info.vms/1e6
+        except (ImportError, Exception):
+            return 0, 0
 
 def num_threads(n=None):
     '''Set the number of OMP threads.  If argument is not specified, the
@@ -350,7 +420,7 @@ def prange_split(n_total, n_sections):
 
 izip = zip
 
-if sys.version_info > (3, 8):
+if sys.version_info >= (3, 8):
     from math import comb
 else:
     import math
@@ -492,7 +562,7 @@ class capture_stdout:
         self._contents = None
         self.old_stdout_fileno = sys.stdout.fileno()
         self.bak_stdout_fd = os.dup(self.old_stdout_fileno)
-        self.ftmp = tempfile.NamedTemporaryFile(dir=param.TMPDIR)
+        self.ftmp = NamedTemporaryFile(dir=param.TMPDIR)
         os.dup2(self.ftmp.file.fileno(), self.old_stdout_fileno)
         return self
     def __exit__(self, type, value, traceback):
@@ -610,7 +680,6 @@ class StreamObject:
         anything related to the method (such as the energy, the wave-function,
         the DFT mesh grids etc.).
         '''
-        pass
 
     def pre_kernel(self, envs):
         '''
@@ -618,7 +687,6 @@ class StreamObject:
         Internal variables are exposed to pre_kernel through the "envs"
         dictionary.  Return value of pre_kernel function is not required.
         '''
-        pass
 
     def post_kernel(self, envs):
         '''
@@ -626,7 +694,6 @@ class StreamObject:
         variables are exposed to post_kernel through the "envs" dictionary.
         Return value of post_kernel function is not required.
         '''
-        pass
 
     def run(self, *args, **kwargs):
         '''
@@ -1257,6 +1324,35 @@ class H5TmpFile(H5FileWrap):
         self.close()
 
 
+def NamedTemporaryFile(*args, **kwargs):
+    '''Create a named temporary file object. This function wraps
+    `tempfile.NamedTemporaryFile`. On Windows, `delete=False` is forced
+    to prevent permission errors when the file is reopened by another
+    handle.
+
+    Examples:
+
+    >>> from pyscf import lib
+    >>> ftmp = lib.NamedTemporaryFile()
+    >>> ftmp.name
+    '''
+    if sys.platform == 'win32':
+        kwargs['delete'] = False
+    f = tempfile.NamedTemporaryFile(*args, **kwargs)
+    if sys.platform == 'win32':
+        def _close_and_unlink():
+            try:
+                f.close()
+            except Exception:
+                pass
+            try:
+                os.unlink(f.name)
+            except OSError:
+                pass
+        atexit.register(_close_and_unlink)
+    return f
+
+
 def fingerprint(a):
     '''Fingerprint of numpy array'''
     a = numpy.asarray(a)
@@ -1414,7 +1510,7 @@ def git_info(repo_path):
     try:
         with open(os.path.join(repo_path, '.git', 'ORIG_HEAD'), 'r') as f:
             orig_head = f.read().strip()
-    except IOError:
+    except OSError:
         pass
 
     try:
@@ -1426,7 +1522,7 @@ def git_info(repo_path):
             branch = os.path.basename(head)
             with open(os.path.join(repo_path, '.git', head.split(' ')[1]), 'r') as f:
                 head = f.read().strip()
-    except IOError:
+    except OSError:
         pass
     return orig_head, head, branch
 
@@ -1437,8 +1533,8 @@ def format_sys_info():
     result = [
         f'System: {platform.uname()}  Threads {num_threads()}',
         f'Python {sys.version}',
-        f'numpy {numpy.__version__}  scipy {scipy.__version__}  '
-        f'h5py {h5py.__version__}',
+        (f'numpy {numpy.__version__}  scipy {scipy.__version__}  '
+         f'h5py {h5py.__version__}'),
         f'Date: {time.ctime()}',
         f'PySCF version {pyscf.__version__}',
         f'PySCF path  {info["path"]}',

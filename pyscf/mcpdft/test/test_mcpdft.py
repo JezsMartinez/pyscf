@@ -30,11 +30,19 @@
 # Some assertAlmostTrue thresholds are loose because we are only
 # trying to test the API here; we need tight convergence and grids
 # to reproduce well when OMP is on.
-import tempfile, h5py
+import h5py
 import numpy as np
 from pyscf import gto, scf, mcscf, lib, fci, dft
 from pyscf import mcpdft
 import unittest
+
+try:
+    from pyscf import dmrgscf
+    from pyscf.dmrgscf import settings as dmrg_settings
+    _BLOCKEXE = dmrg_settings.BLOCKEXE
+    _HAS_DMRG = _BLOCKEXE is not None
+except Exception:
+    _HAS_DMRG = False
 
 
 mol_nosym = mol_sym = mf_nosym = mf_sym = mc_nosym = mc_sym = mcp = mc_chk = None
@@ -45,14 +53,17 @@ def auto_setup(xyz="Li 0 0 0\nH 1.5 0 0", fnal="tPBE"):
     mol_sym = gto.M(
         atom=xyz, basis="sto3g", symmetry=True, verbose=0, output="/dev/null"
     )
-    mf_nosym = scf.RHF(mol_nosym).run()
-    mc_nosym = mcscf.CASSCF(mf_nosym, 5, 2).run(conv_tol=1e-8)
+    mf_nosym = scf.RHF(mol_nosym).run(conv_tol=1e-12)
+    mc_nosym = mcscf.CASSCF(mf_nosym, 5, 2)
     mf_sym = scf.RHF(mol_sym).run()
     mc_sym = mcscf.CASSCF(mf_sym, 5, 2).run(conv_tol=1e-8)
+    mc_nosym.run (mo_coeff=mc_sym.mo_coeff,
+                  ci=mc_sym.ci,
+                  conv_tol=1e-8)
     mcp_ss_nosym = mcpdft.CASSCF(mc_nosym, fnal, 5, 2).run(conv_tol=1e-8)
     mcp_ss_sym = (
         mcpdft.CASSCF(mc_sym, fnal, 5, 2)
-        .set(chkfile=tempfile.NamedTemporaryFile().name)#, chk_ci=True)
+        .set(chkfile=lib.NamedTemporaryFile().name, chk_ci=True)
         .run(conv_tol=1e-8)
     )
     mcp_sa_0 = mcp_ss_nosym.state_average(
@@ -60,7 +71,7 @@ def auto_setup(xyz="Li 0 0 0\nH 1.5 0 0", fnal="tPBE"):
             1.0 / 5,
         ]
         * 5
-    ).run(conv_tol=1e-8)
+    )
     solver_S = fci.solver(mol_nosym, singlet=True).set(spin=0, nroots=2)
     solver_T = fci.solver(mol_nosym, singlet=False).set(spin=2, nroots=3)
     mcp_sa_1 = (
@@ -72,7 +83,6 @@ def auto_setup(xyz="Li 0 0 0\nH 1.5 0 0", fnal="tPBE"):
             * 5,
         )
         .set(ci=None)
-        .run(conv_tol=1e-8)
     )
     solver_A1 = fci.solver(mol_sym).set(wfnsym="A1", nroots=3)
     solver_E1x = fci.solver(mol_sym).set(wfnsym="E1x", nroots=1, spin=2)
@@ -85,9 +95,13 @@ def auto_setup(xyz="Li 0 0 0\nH 1.5 0 0", fnal="tPBE"):
             ]
             * 5,
         )
-        .set(ci=None, chkfile=tempfile.NamedTemporaryFile().name)#, chk_ci=True)
+        .set(ci=None, chkfile=lib.NamedTemporaryFile().name, chk_ci=True)
         .run(conv_tol=1e-8)
     )
+    mcp_sa_1.run (mo_coeff=mcp_sa_2.mo_coeff,
+                  conv_tol=1e-8)
+    mcp_sa_0.run (mo_coeff=mcp_sa_2.mo_coeff,
+                  conv_tol=1e-8)
     mcp = [[mcp_ss_nosym, mcp_ss_sym], [mcp_sa_0, mcp_sa_1, mcp_sa_2]]
     nosym = [mol_nosym, mf_nosym, mc_nosym]
     sym = [mol_sym, mf_sym, mc_sym]
@@ -763,6 +777,83 @@ class KnownValues(unittest.TestCase):
         # Reference from OpenMolcas v24.10
         e_ref = -0.74702903
         self.assertAlmostEqual (mc.e_tot, e_ref, 6)
+
+    def test_state_specific_casci(self):
+        # issue #3414: mc.state_specific_(n) must yield a scalar e_tot equal to
+        # the n-th root of a plain multi-root CASCI-PDFT calculation.
+        mol = gto.M(atom="H 0 0 0; H 0 0 1.5; H 0 0 3.0; H 0 0 4.5",
+                    basis="sto3g", verbose=0, output="/dev/null")
+        mf = scf.RHF(mol).run(conv_tol=1e-12)
+
+        mc_ref = mcpdft.CASCI(mf, "tPBE", 4, 4)
+        mc_ref.fcisolver.nroots = 2
+        mc_ref.kernel()
+        e_ref = mc_ref.e_tot
+
+        for state in (0, 1):
+            mc = mcpdft.CASCI(mf, "tPBE", 4, 4).state_specific_(state)
+            mc.kernel()
+            with self.subTest(part="CASCI", state=state):
+                self.assertFalse(isinstance(mc.e_tot, (list, tuple)))
+                self.assertAlmostEqual(mc.e_tot, e_ref[state], delta=1e-9)
+
+    def test_state_specific_casscf(self):
+        # issue #3414: state-specific CASSCF-PDFT must equal the state-averaged
+        # PDFT energy with the weight concentrated on that one state.
+        mol = gto.M(atom="H 0 0 0; H 0 0 1.5; H 0 0 3.0; H 0 0 4.5",
+                    basis="sto3g", verbose=0, output="/dev/null")
+        mf = scf.RHF(mol).run(conv_tol=1e-12)
+
+        mc_ss = mcpdft.CASSCF(mf, "tPBE", 4, 4).state_specific_(1)
+        mc_ss.conv_tol = 1e-8
+        mc_ss.kernel()
+        mc_sa = mcpdft.CASSCF(mf, "tPBE", 4, 4).state_average_((0.0, 1.0))
+        mc_sa.conv_tol = 1e-8
+        mc_sa.kernel()
+
+        self.assertFalse(isinstance(mc_ss.e_tot, (list, tuple)))
+        self.assertAlmostEqual(mc_ss.e_tot, mc_sa.e_states[1], delta=1e-8)
+
+    @unittest.skipUnless(_HAS_DMRG, "dmrgscf / block2 not available")
+    def test_state_specific_dmrg(self):
+        # issue #3414: for a state-specific DMRG, mc.ci is a state index (int).
+        # The DMRG RDM of the *target* state must be used, not the ground state.
+        mol = gto.M(atom="H 0 0 0; H 0 0 1.5; H 0 0 3.0; H 0 0 4.5",
+                    basis="sto3g", verbose=0, output="/dev/null")
+        mf = scf.RHF(mol).run(conv_tol=1e-12)
+
+        # FCI singlet S1 reference
+        mc_s1 = mcpdft.CASCI(mf, "tPBE", 4, 4)
+        mc_s1.fix_spin_(ss=0.0)
+        mc_s1 = mc_s1.state_specific_(1)
+        mc_s1.kernel()
+        e_s1 = mc_s1.e_tot
+        mc_s0 = mcpdft.CASCI(mf, "tPBE", 4, 4)
+        mc_s0.fix_spin_(ss=0.0)
+        mc_s0 = mc_s0.state_specific_(0)
+        mc_s0.kernel()
+        e_s0 = mc_s0.e_tot
+
+        e_dmrg = []
+        for state in (0, 1):
+            mc = mcpdft.CASCI(mf, "tPBE", 4, 4)
+            solver = dmrgscf.DMRGCI(mol, maxM=100, tol=1e-6)
+            solver.memory = 8
+            solver.threads = 2
+            mc.fcisolver = solver
+            mc = mc.state_specific_(state)
+            mc.kernel()
+            with self.subTest(part="DMRG", state=state):
+                self.assertFalse(isinstance(mc.e_tot, (list, tuple)))
+            e_dmrg.append(mc.e_tot)
+
+        with self.subTest(part="DMRG state selection"):
+            # Without the fix, state_specific_(1) silently returns the
+            # ground-state energy (DMRG state index 0).
+            self.assertNotAlmostEqual(e_dmrg[0], e_dmrg[1], places=2)
+            self.assertAlmostEqual(e_dmrg[0], e_s0, delta=2e-3)
+            self.assertAlmostEqual(e_dmrg[1], e_s1, delta=2e-3)
+
 
 
 

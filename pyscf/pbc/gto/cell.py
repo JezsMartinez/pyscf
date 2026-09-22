@@ -32,7 +32,7 @@ from pyscf.dft import radi
 from pyscf.lib import logger
 from pyscf.gto import mole
 from pyscf.gto import moleintor
-from pyscf.gto.mole import conc_env, is_au # noqa
+from pyscf.gto.mole import conc_env, is_au
 from pyscf.pbc.gto import _pbcintor
 from pyscf.pbc.gto.eval_gto import eval_gto as pbc_eval_gto
 from pyscf.pbc.tools import pbc as pbctools
@@ -132,7 +132,7 @@ def dumps(cell):
 def loads(cellstr):
     '''Deserialize a str containing a JSON document to a Cell object.
     '''
-    from numpy import array  # noqa
+    from numpy import array
     celldic = json.loads(cellstr)
     cell = Cell()
     cell.__dict__.update(celldic)
@@ -1145,10 +1145,14 @@ def _parse_poscar(string):
     a = lines[2:5]
     lattice_vectors = np.array([np.fromstring(ax, sep=' ') for ax in a])
     lattice_vectors *= scale
-    atom_position_type = lines[7].strip().lower()
-    if atom_position_type == 'cartesian':
+    atom_position_line = 7
+    atom_position_type = lines[atom_position_line].strip().lower()
+    if atom_position_type.startswith('s'):
+        atom_position_line += 1
+        atom_position_type = lines[atom_position_line].strip().lower()
+    if atom_position_type.startswith(('c', 'k')):
         fractional = False
-    elif atom_position_type == 'direct':
+    elif atom_position_type.startswith('d'):
         fractional = True
     else:
         raise RuntimeError('Error reading VASP geometry due to '
@@ -1159,15 +1163,15 @@ def _parse_poscar(string):
     for atom, count in zip(lines[5].split(), lines[6].split()):
         unique_atoms[atom] = int(count)
         natm += int(count)
-    start = end = 8
+    start = end = atom_position_line + 1
     elements = []
     coords = []
     for atom_type in unique_atoms:
         count = unique_atoms[atom_type]
         start, end = end, end + count
         elements.extend([atom_type] * count)
-        r = np.fromstring(' '.join(lines[start:end]), sep=' ')
-        coords.append(r.reshape(count, 3))
+        r = np.loadtxt(lines[start:end], usecols=(0, 1, 2), ndmin=2)
+        coords.append(r)
     coords = np.vstack(coords)
     assert len(coords) == len(elements)
     return lattice_vectors, elements, coords, fractional
@@ -1417,7 +1421,7 @@ class Cell(mole.MoleBase):
 
         # Import all available modules. Some methods are registered to other
         # classes/modules when importing modules in __all__.
-        from pyscf.pbc import __all__  # noqa
+        from pyscf.pbc import __all__
         from pyscf.pbc import scf, dft
         from pyscf.dft import XC
 
@@ -1903,7 +1907,7 @@ class Cell(mole.MoleBase):
             \mathbf{b_3} &= 2\pi \frac{\mathbf{a_1} \times \mathbf{a_2}}{\mathbf{a_3} \cdot (\mathbf{a_1} \times \mathbf{a_2})}
             \end{align}
 
-        '''  # noqa: E501
+        '''
         a = self.lattice_vectors()
         if self.dimension == 1:
             assert (abs(np.dot(a[0], a[1])) < 1e-9 and
@@ -2082,8 +2086,11 @@ class Cell(mole.MoleBase):
         return mol
 
     def to_gpu(self):
-        from gpu4pyscf.gto.mole import Cell
-        return Cell.from_cpu(self)
+        from gpu4pyscf.gto import mole
+        if hasattr(mole, 'Cell'):
+            return mole.Cell.from_cpu(self)
+        else: # Cell class is defined in gpu4pyscf 1.5 or newer
+            return self
 
     def set_geom_(self, atoms_or_coords=None, unit=None, symmetry=None,
                   a=None, inplace=True):

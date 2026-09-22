@@ -49,8 +49,8 @@ import cppe
 from packaging.version import parse as _parse_version
 min_version = '0.3.1'
 if _parse_version(cppe.__version__) < _parse_version(min_version):
-    raise ModuleNotFoundError("cppe version {} is required at least. "
-                              "Version {} was found.".format(min_version, cppe.__version__))
+    raise ModuleNotFoundError(f"cppe version {min_version} is required at least. "
+                              f"Version {cppe.__version__} was found.")
 
 from pyscf import lib
 from pyscf.lib import logger
@@ -295,8 +295,6 @@ class PolEmbed(lib.StreamObject):
         return self
 
     def kernel(self, dm, elec_only=False):
-        '''
-        '''
         if not (isinstance(dm, numpy.ndarray) and dm.ndim == 2):
             # spin-traced DM for UHF or ROHF
             dm = dm[0] + dm[1]
@@ -496,7 +494,7 @@ if __name__ == '__main__':
            1        0.000000   -0.935307   -1.082500
                 ''', basis='sto3g')
     mf = mol.RHF()
-    with tempfile.NamedTemporaryFile() as f:
+    with lib.NamedTemporaryFile() as f:
         f.write(b'''!
 @COORDINATES
 3

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2014-2020 The PySCF Developers. All Rights Reserved.
+# Copyright 2014-2026 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,8 +23,8 @@ Generalized Hartree-Fock for periodic systems with k-point sampling
 from functools import reduce
 import numpy as np
 import scipy.linalg
-import pyscf.scf.hf as mol_hf  # noqa
-import pyscf.scf.ghf as mol_ghf  # noqa
+import pyscf.scf.hf as mol_hf
+import pyscf.scf.ghf as mol_ghf
 import pyscf.scf.uhf as mol_uhf
 from pyscf import lib
 from pyscf.lib import logger
@@ -32,6 +32,7 @@ from pyscf.pbc.scf import khf
 from pyscf.pbc.scf import ghf as pbcghf
 from pyscf.pbc.scf import addons
 from pyscf.pbc.df.df_jk import _format_jks
+from pyscf.data import nist
 from pyscf import __config__
 
 WITH_META_LOWDIN = getattr(__config__, 'pbc_scf_analyze_with_meta_lowdin', True)
@@ -120,13 +121,17 @@ def get_occ(mf, mo_energy_kpts=None, mo_coeff_kpts=None):
         mo_occ_kpts.append((mo_e <= fermi).astype(np.double))
 
     if nocc < nmo:
-        logger.info(mf, 'HOMO = %.12g  LUMO = %.12g',
-                    mo_energy[nocc-1], mo_energy[nocc])
-        if mo_energy[nocc-1]+1e-3 > mo_energy[nocc]:
-            logger.warn(mf, 'HOMO %.12g == LUMO %.12g',
-                        mo_energy[nocc-1], mo_energy[nocc])
+        homo, lumo = mo_energy[nocc-1:nocc+1]
+        gap = (lumo - homo) * nist.HARTREE2EV
+        mf.scf_summary['gap'] = gap
+        if mf.verbose >= logger.INFO:
+            if homo+1e-3 > lumo:
+                logger.warn(mf, 'HOMO %.12g == LUMO %.12g', homo, lumo)
+            else:
+                logger.info(mf, '  HOMO = %.12g  LUMO = %.12g  gap/eV = %.5f',
+                            homo, lumo, gap)
     else:
-        logger.info(mf, 'HOMO = %.12g', mo_energy[nocc-1])
+        logger.info(mf, 'HOMO = %.12g (no LUMO)', mo_energy[nocc-1])
 
     if mf.verbose >= logger.DEBUG:
         np.set_printoptions(threshold=len(mo_energy))
@@ -144,7 +149,7 @@ def _make_rdm1_meta(cell, dm_ao_kpts, kpts, pre_orth_method, s):
     from pyscf.lo import orth
     from pyscf.pbc.tools import k2gamma
 
-    kmesh = k2gamma.kpts_to_kmesh(cell, kpts-kpts[0])
+    kmesh = k2gamma.kpts_to_kmesh(cell, kpts-kpts[0], bound_by_supmol=False)
     nkpts, nso = dm_ao_kpts.shape[:2]
     nao = nso // 2
     scell, phase = k2gamma.get_phase(cell, kpts, kmesh)
@@ -233,10 +238,15 @@ class KGHF(khf.KSCF):
     def get_k(self, cell=None, dm_kpts=None, hermi=0, kpts=None, kpts_band=None):
         return self.get_jk(cell, dm_kpts, hermi, kpts, kpts_band, False, True)[1]
 
-    def get_veff(self, cell=None, dm_kpts=None, dm_last=0, vhf_last=0, hermi=1,
+    def get_veff(self, cell=None, dm_kpts=None, dm_last=None, vhf_last=None, hermi=1,
                  kpts=None, kpts_band=None):
+        if dm_kpts is None: dm_kpts = self.make_rdm1()
         vj, vk = self.get_jk(cell, dm_kpts, hermi, kpts, kpts_band, True, True)
         vhf = vj - vk
+        if dm_kpts.ndim == 3 and kpts_band is None:
+            nkpts = len(dm_kpts)
+            ecoul = np.einsum('Kij,Kji->', dm_kpts, vj).real * .5/nkpts
+            vhf = lib.tag_array(vhf, ecoul=ecoul)
         return vhf
 
     def get_grad(self, mo_coeff_kpts, mo_occ_kpts, fock=None):

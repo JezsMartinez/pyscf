@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # Copyright 2014-2021 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -53,7 +52,7 @@ _itrf.LIBXC_needs_laplacian.restype = ctypes.c_int
 _itrf.LIBXC_is_hybrid.restype = ctypes.c_int
 _itrf.LIBXC_is_nlc.argtypes = (ctypes.c_int, ctypes.c_void_p)
 _itrf.LIBXC_is_nlc.restype = ctypes.c_int
-_itrf.LIBXC_is_cam_rsh.argtypes = (ctypes.c_int, ctypes.c_void_p)
+_itrf.LIBXC_is_cam_rsh.argtypes = (ctypes.c_void_p,)
 _itrf.LIBXC_is_cam_rsh.restype = ctypes.c_int
 _itrf.LIBXC_xc_type.argtypes = (ctypes.c_int, ctypes.c_void_p)
 _itrf.LIBXC_xc_type.restype = ctypes.c_int
@@ -95,6 +94,10 @@ _itrf.xc_func_get_info.restype = ctypes.c_void_p
 _itrf.xc_func_info_get_n_ext_params.argtypes = (ctypes.c_void_p, )
 _itrf.xc_func_info_get_n_ext_params.restype = ctypes.c_int
 _itrf.xc_func_set_ext_params.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_double))
+_itrf.xc_func_set_ext_params_name.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_double)
+_itrf.xc_func_set_ext_params_name.restype = None
+_itrf.LIBXC_xc_func_find_ext_params_name.argtypes = (ctypes.c_void_p, ctypes.c_char_p)
+_itrf.LIBXC_xc_func_find_ext_params_name.restype = ctypes.c_int
 
 _XC_FUNC_TYPE_SIZE = _itrf.LIBXC_xc_func_type_size()
 
@@ -199,7 +202,7 @@ XC_CODES.update({
     'REVPBE0'       : '.25*HF + .75*PBE_R, PBE',
     'B1B95'         : 440,
     'TPSS0'         : '.25*HF + .75*TPSS, TPSS',
-})  # noqa: E501
+})
 
 if getattr(__config__, 'B3LYP_WITH_VWN5', False):
     XC_CODES['B3P86' ] = 'B3P86V5'
@@ -276,6 +279,7 @@ XC_ALIAS = {
     'M05_2X'            : 'HYB_MGGA_X_M05_2X,MGGA_C_M05_2X',
     'M06_2X'            : 'HYB_MGGA_X_M06_2X,MGGA_C_M06_2X',
     'M06_HF'            : 'HYB_MGGA_X_M06_HF,MGGA_C_M06_HF',
+    'CF22D'             : 'HYB_MGGA_X_CF22D,MGGA_C_CF22D',
     # extra aliases
     'SOGGA11X'          : 'SOGGA11_X',
     'M06L'              : 'M06_L',
@@ -333,7 +337,7 @@ def is_hybrid_xc(xc_code):
         xc = _get_xc(xc_code)
         return _is_hybrid_xc(xc.xc_objs, xc.hyb, xc.facs, xc_code)
     else:
-        return any((is_hybrid_xc(x) for x in xc_code))
+        return any(is_hybrid_xc(x) for x in xc_code)
 
 def _is_hybrid_xc(xc_objs, hyb, facs, xc_code):
     if _hybrid_coeff(xc_objs, hyb, facs) != 0:
@@ -359,7 +363,7 @@ def is_nlc(xc_code):
         xc = _get_xc(xc_code)
         return xc.is_nlc
     else:
-        return any((is_nlc(x) for x in xc_code))
+        return any(is_nlc(x) for x in xc_code)
 
 def _is_nlc(nfunc, xc_arr):
     return _itrf.LIBXC_is_nlc(nfunc, xc_arr)
@@ -534,7 +538,7 @@ def parse_xc(description):
     Returns:
         decoded XC description, with the data structure
         (hybrid, alpha, omega), ((libxc-Id, fac), (libxc-Id, fac), ...)
-    '''  # noqa: E501
+    '''
 
     hyb = [0, 0, 0]  # hybrid, alpha, omega (== SR_HF, LR_HF, omega)
     if description is None:
@@ -856,7 +860,7 @@ def eval_xc(xc_code, rho, spin=0, relativity=0, deriv=1, omega=None, verbose=Non
           | v3tau3[:,4]         = (u_u_u, u_u_d, u_d_d, d_d_d)
 
         see also libxc_itrf.c
-    '''  # noqa: E501
+    '''
     outbuf = _eval_xc(xc_code, rho, spin, deriv, omega)
     exc = outbuf[0]
     vxc = fxc = kxc = None
@@ -1216,11 +1220,11 @@ def define_xc_(ni, description, xctype='LDA', hyb=0, rsh=(0,0,0)):
                 assert len(fxc) == 3, 'fxc for GGA should be arranged as (v2rho2, v2rhosigma, v2sigma2)'
             elif xctype == 'MGGA':
                 if len(fxc) == 10:
-                    fxc = [fxc[i] for i in [0, 1, 2, 6, 4, 9]]
+                    fxc = [fxc[i] for i in [0, 1, 2, 6, 9, 4]]
                 else:
                     assert len(fxc) == 6, (
                         'fxc for MGGA should be arranged as\n'
-                        '(v2rho2, v2rhosigma, v2sigma2, v2tau2, v2rhotau, v2sigmatau)\nor\n'
+                        '(v2rho2, v2rhosigma, v2sigma2, v2rhotau, v2sigmatau, v2tau2)\nor\n'
                         '(v2rho2, v2rhosigma, v2sigma2, v2lapl2, v2tau2, '
                         'v2rholapl, v2rhotau, v2lapltau, v2sigmalapl, v2sigmatau)')
             assert all(x is not None for x in fxc)
@@ -1352,14 +1356,24 @@ class XCFunctionalCache:
             self.facs = facs
         if ext_params is not None:
             for xid, param in ext_params.items():
-                param = numpy.asarray(param, dtype=numpy.double)
                 func = obj_by_id[xid]
-                info = _itrf.xc_func_get_info(func)
-                n = _itrf.xc_func_info_get_n_ext_params(info)
-                assert param.size == n, \
-                    f"""Unexpected size of external parameters for functional {xid}.
+                if isinstance(param, dict):
+                    for k, v in param.items():
+                        if _itrf.LIBXC_xc_func_find_ext_params_name(
+                                func, str(k).encode()) < 0:
+                            raise ValueError(
+                                f"Unknown ext_params name '{k}' for functional {xid}.")
+                        _itrf.xc_func_set_ext_params_name(
+                            func, str(k).encode(), float(v))
+                else:
+                    param = numpy.asarray(param, dtype=numpy.double)
+                    info = _itrf.xc_func_get_info(func)
+                    n = _itrf.xc_func_info_get_n_ext_params(info)
+                    assert param.size == n, \
+                        f"""Unexpected size of external parameters for functional {xid}.
 Expected {n} but {param.size} provided."""
-                _itrf.xc_func_set_ext_params(func, param.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
+                    _itrf.xc_func_set_ext_params(
+                        func, param.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if callable(callback):
             callback(self, obj_by_id, self.spin)
 

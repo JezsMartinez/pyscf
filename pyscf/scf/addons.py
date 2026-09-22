@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # Copyright 2014-2020 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,7 +27,7 @@ from pyscf.lib.scipy_helper import pivoted_cholesky
 from pyscf import __config__
 # The smearing utilities were moved to a separate module. They were implemented
 # in the addons module. Import them into this namespace for backward compatibility
-from pyscf.scf.smearing import (  # noqa
+from pyscf.scf.smearing import (
     SMEARING_METHOD,
     smearing,
     smearing_,
@@ -223,7 +222,7 @@ def dynamic_level_shift_(mf, factor=1.):
     '''
     old_get_fock = mf.get_fock
     mf._last_e = None
-    def get_fock(h1e, s1e, vhf, dm, cycle=-1, diis=None,
+    def get_fock(h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
                  diis_start_cycle=None, level_shift_factor=None, damp_factor=None,
                  fock_last=None):
         if cycle > 0 or diis is not None:
@@ -356,6 +355,14 @@ def mom_occ_(mf, occorb, setocc):
 
 mom_occ = mom_occ_
 
+def _project_solve(s, b):
+    '''Solve s x = b discarding the nearly singular subspace of the metric s,
+    using the same linear dependency threshold as the SCF kernel
+    (see issue #3015)'''
+    from pyscf.scf import hf
+    X = hf.check_linear_dependency(s)
+    return X.dot(X.conj().T.dot(b))
+
 def project_mo_nr2nr(mol1, mo1, mol2):
     r''' Project orbital coefficients from basis set 1 (C1 for mol1) to basis
     set 2 (C2 for mol2).
@@ -368,6 +375,11 @@ def project_mo_nr2nr(mol1, mo1, mol2):
 
         C2 = S^{-1}\langle AO2|AO1\rangle C1
 
+    Eigenvectors of the AO2 overlap matrix with eigenvalues smaller than
+    ``scf_hf_overlap_zero_eigenvalue_threshold`` (default 1e-6) are removed
+    from the projection (same threshold used by the SCF kernel to handle
+    linear dependency in the overlap).
+
     There are three relevant functions:
     :func:`project_mo_nr2nr` is the projection for non-relativistic (scalar) basis.
     :func:`project_mo_nr2r` projects from non-relativistic to relativistic basis.
@@ -376,10 +388,9 @@ def project_mo_nr2nr(mol1, mo1, mol2):
     s22 = mol2.intor_symmetric('int1e_ovlp')
     s21 = mole.intor_cross('int1e_ovlp', mol2, mol1)
     if isinstance(mo1, numpy.ndarray) and mo1.ndim == 2:
-        return lib.cho_solve(s22, numpy.dot(s21, mo1), strict_sym_pos=False)
+        return _project_solve(s22, numpy.dot(s21, mo1))
     else:
-        return [lib.cho_solve(s22, numpy.dot(s21, x), strict_sym_pos=False)
-                for x in mo1]
+        return [_project_solve(s22, numpy.dot(s21, x)) for x in mo1]
 
 @lib.with_doc(project_mo_nr2nr.__doc__)
 def project_mo_nr2r(mol1, mo1, mol2):
@@ -393,10 +404,9 @@ def project_mo_nr2r(mol1, mo1, mol2):
     # so DM = mo2[:,:nocc] * 1 * mo2[:,:nocc].H
     if isinstance(mo1, numpy.ndarray) and mo1.ndim == 2:
         mo2 = numpy.dot(s21, mo1)
-        return lib.cho_solve(s22, mo2, strict_sym_pos=False)
+        return _project_solve(s22, mo2)
     else:
-        return [lib.cho_solve(s22, numpy.dot(s21, x), strict_sym_pos=False)
-                for x in mo1]
+        return [_project_solve(s22, numpy.dot(s21, x)) for x in mo1]
 
 @lib.with_doc(project_mo_nr2nr.__doc__)
 def project_mo_r2r(mol1, mo1, mol2):
@@ -405,8 +415,8 @@ def project_mo_r2r(mol1, mo1, mol2):
     s21 = mole.intor_cross('int1e_ovlp_spinor', mol2, mol1)
     t21 = mole.intor_cross('int1e_spsp_spinor', mol2, mol1)
     n2c = s21.shape[1]
-    pl = lib.cho_solve(s22, s21, strict_sym_pos=False)
-    ps = lib.cho_solve(t22, t21, strict_sym_pos=False)
+    pl = _project_solve(s22, s21)
+    ps = _project_solve(t22, t21)
     if isinstance(mo1, numpy.ndarray) and mo1.ndim == 2:
         return numpy.vstack((numpy.dot(pl, mo1[:n2c]),
                              numpy.dot(ps, mo1[n2c:])))
@@ -435,7 +445,7 @@ def project_dm_nr2nr(mol1, dm1, mol2):
     '''
     s22 = mol2.intor_symmetric('int1e_ovlp')
     s21 = mole.intor_cross('int1e_ovlp', mol2, mol1)
-    p21 = lib.cho_solve(s22, s21, strict_sym_pos=False)
+    p21 = _project_solve(s22, s21)
     if isinstance(dm1, numpy.ndarray) and dm1.ndim == 2:
         return reduce(numpy.dot, (p21, dm1, p21.conj().T))
     else:
@@ -451,7 +461,7 @@ def project_dm_nr2r(mol1, dm1, mol2):
     s21 = numpy.dot(ua.T.conj(), s21) + numpy.dot(ub.T.conj(), s21) # (*)
     # mo2: alpha, beta have been summed in Eq. (*)
     # so DM = mo2[:,:nocc] * 1 * mo2[:,:nocc].H
-    p21 = lib.cho_solve(s22, s21, strict_sym_pos=False)
+    p21 = _project_solve(s22, s21)
     if isinstance(dm1, numpy.ndarray) and dm1.ndim == 2:
         return reduce(numpy.dot, (p21, dm1, p21.conj().T))
     else:
@@ -463,8 +473,8 @@ def project_dm_r2r(mol1, dm1, mol2):
     t22 = mol2.intor_symmetric('int1e_spsp_spinor')
     s21 = mole.intor_cross('int1e_ovlp_spinor', mol2, mol1)
     t21 = mole.intor_cross('int1e_spsp_spinor', mol2, mol1)
-    pl = lib.cho_solve(s22, s21, strict_sym_pos=False)
-    ps = lib.cho_solve(t22, t21, strict_sym_pos=False)
+    pl = _project_solve(s22, s21)
+    ps = _project_solve(t22, t21)
     p21 = scipy.linalg.block_diag(pl, ps)
     if isinstance(dm1, numpy.ndarray) and dm1.ndim == 2:
         return reduce(numpy.dot, (p21, dm1, p21.conj().T))
@@ -537,6 +547,15 @@ def remove_linear_dep_(mf, threshold=LINEAR_DEP_THRESHOLD,
             The threshold that triggers the special treatment of the linear
             dependence issue.
     '''
+    if not force_pivoted_cholesky:
+        from warnings import warn
+        warn("remove_linear_dep_ is deprecated and will be removed in a future release. "
+             "Linear dependency handling is now built into the SCF procedure by default. "
+             "Linear dependency removal can be controlled using the following settings:\n"
+             "  pyscf.scf.hf.remove_overlap_zero_eigenvalue = True\n"
+             "  pyscf.scf.hf.overlap_zero_eigenvalue_threshold = 1e-6\n",
+             DeprecationWarning, stacklevel=2)
+
     s = mf.get_ovlp()
     cond = numpy.max(lib.cond(s))
     if cond < 1./lindep and not force_pivoted_cholesky:
@@ -545,20 +564,20 @@ def remove_linear_dep_(mf, threshold=LINEAR_DEP_THRESHOLD,
     logger.info(mf, 'Applying remove_linear_dep_ on SCF object.')
     logger.debug(mf, 'Overlap condition number %g', cond)
     if (cond < 1./numpy.finfo(s.dtype).eps and not force_pivoted_cholesky):
-        logger.info(mf, 'Using canonical orthogonalization with threshold {}'.format(threshold))
+        logger.info(mf, f'Using canonical orthogonalization with threshold {threshold}')
         mf._eigh = _eigh_with_canonical_orth(threshold)
     else:
         assert s.dtype == numpy.float64
         logger.info(mf, 'Using partial Cholesky orthogonalization '
                     '(doi:10.1063/1.5139948, doi:10.1103/PhysRevA.101.032504)')
-        logger.info(mf, 'Using threshold {} for pivoted Cholesky'.format(cholesky_threshold))
-        logger.info(mf, 'Using threshold {} to orthogonalize the subbasis'.format(threshold))
+        logger.info(mf, f'Using threshold {cholesky_threshold} for pivoted Cholesky')
+        logger.info(mf, f'Using threshold {threshold} to orthogonalize the subbasis')
         mf._eigh = _eigh_with_pivot_cholesky(threshold, cholesky_threshold)
     return mf
 remove_linear_dep = remove_linear_dep_
 
 def _eigh_with_canonical_orth(threshold=LINEAR_DEP_THRESHOLD):
-    def eigh(h, s):
+    def eigh(h, s, *args, **kwargs):
         x = canonical_orth_(s, threshold)
         xhx = reduce(lib.dot, (x.conj().T, h, x))
         e, c = scipy.linalg.eigh(xhx)
@@ -568,7 +587,7 @@ def _eigh_with_canonical_orth(threshold=LINEAR_DEP_THRESHOLD):
 
 def _eigh_with_pivot_cholesky(threshold=LINEAR_DEP_THRESHOLD,
                               cholesky_threshold=CHOLESKY_THRESHOLD):
-    def eigh(h, s):
+    def eigh(h, s, *args, **kwargs):
         x = partial_cholesky_orth_(s, canthr=threshold, cholthr=cholesky_threshold)
         xhx = reduce(lib.dot, (x.conj().T, h, x))
         e, c = scipy.linalg.eigh(xhx)

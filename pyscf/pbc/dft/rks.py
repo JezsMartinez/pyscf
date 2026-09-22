@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2014-2019 The PySCF Developers. All Rights Reserved.
+# Copyright 2014-2026 The PySCF Developers. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ from pyscf.pbc.lib.kpts import KPoints
 from pyscf import __config__
 
 
-def get_veff(ks, cell=None, dm=None, dm_last=0, vhf_last=0, hermi=1,
+def get_veff(ks, cell=None, dm=None, dm_last=None, vhf_last=None, hermi=1,
              kpt=None, kpts_band=None):
     '''Coulomb + XC functional
 
@@ -122,17 +122,9 @@ def _patch_df_beckegrids(density_fit):
 
 NELEC_ERROR_TOL = getattr(__config__, 'pbc_dft_rks_prune_error_tol', 0.02)
 def prune_small_rho_grids_(ks, cell, dm, grids, kpts):
+    threshold = ks.small_rho_cutoff
     rho = ks.get_rho(dm, grids, kpts)
-    n = numpy.dot(rho, grids.weights)
-    if abs(n-cell.nelectron) < NELEC_ERROR_TOL*n:
-        rho *= grids.weights
-        idx = abs(rho) > ks.small_rho_cutoff / grids.weights.size
-        logger.debug(ks, 'Drop grids %d',
-                     grids.weights.size - numpy.count_nonzero(idx))
-        grids.coords  = numpy.asarray(grids.coords [idx], order='C')
-        grids.weights = numpy.asarray(grids.weights[idx], order='C')
-        grids.non0tab = grids.make_mask(cell, grids.coords)
-    return grids
+    return grids.prune_by_density_(rho, threshold)
 
 @lib.with_doc(pbchf.get_rho.__doc__)
 def get_rho(mf, dm=None, grids=None, kpt=None):
@@ -258,7 +250,7 @@ class KohnShamDFT(mol_ks.KohnShamDFT):
 
     _keys = {'xc', 'nlc', 'grids', 'nlcgrids', 'small_rho_cutoff'}
     # Use rho to filter grids
-    small_rho_cutoff = getattr(__config__, 'dft_rks_RKS_small_rho_cutoff', 1e-7)
+    small_rho_cutoff = getattr(__config__, 'dft_rks_RKS_small_rho_cutoff', 0)
 
     get_rho = get_rho
 
@@ -371,20 +363,21 @@ class KohnShamDFT(mol_ks.KohnShamDFT):
 
     def initialize_grids(self, cell, dm, kpts, ground_state=True):
         '''Initialize self.grids the first time call get_veff'''
-        if self.grids.coords is None:
-            t0 = (logger.process_clock(), logger.perf_counter())
+        if (isinstance(self.grids, gen_grid.BeckeGrids) and
+            self.grids.coords is None):
+            t0 = logger.init_timer()
             self.grids.build(with_non0tab=True)
-            if (isinstance(self.grids, gen_grid.BeckeGrids) and
-                self.small_rho_cutoff > 1e-20 and ground_state):
+            if (self.small_rho_cutoff > 1e-20 and ground_state):
                 self.grids = prune_small_rho_grids_(
                     self, self.cell, dm, self.grids, kpts)
             t0 = logger.timer(self, 'setting up grids', *t0)
         is_nlc = self.do_nlc()
-        if is_nlc and self.nlcgrids.coords is None:
-            t0 = (logger.process_clock(), logger.perf_counter())
+        if (is_nlc and
+            isinstance(self.nlcgrids, gen_grid.BeckeGrids) and
+            self.nlcgrids.coords is None):
+            t0 = logger.init_timer()
             self.nlcgrids.build(with_non0tab=True)
-            if (isinstance(self.grids, gen_grid.BeckeGrids) and
-                self.small_rho_cutoff > 1e-20 and ground_state):
+            if (self.small_rho_cutoff > 1e-20 and ground_state):
                 self.nlcgrids = prune_small_rho_grids_(
                     self, self.cell, dm, self.nlcgrids, kpts)
             t0 = logger.timer(self, 'setting up nlc grids', *t0)

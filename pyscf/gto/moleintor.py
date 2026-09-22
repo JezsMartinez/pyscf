@@ -256,12 +256,10 @@ def getints(intor_name, atm, bas, env, shls_slice=None, comp=None, hermi=0,
     if any(bas[:,ANG_OF] > 12):
         raise NotImplementedError('cint library does not support high angular (l>12) GTOs')
 
-    if (intor_name.startswith('int1e') or
-        intor_name.startswith('ECP') or
-        intor_name.startswith('int2c2e')):
+    if intor_name.startswith(('int1e', 'ECP', 'int2c2e')):
         return getints2c(intor_name, atm, bas, env, shls_slice, comp,
                          hermi, ao_loc, cintopt, out)
-    elif intor_name.startswith('int2e') or intor_name.startswith('int4c1e'):
+    elif intor_name.startswith(('int2e', 'int4c1e')):
         return getints4c(intor_name, atm, bas, env, shls_slice, comp,
                          aosym, ao_loc, cintopt, out)
     elif intor_name.startswith('int3c'):
@@ -497,7 +495,7 @@ def getints2c(intor_name, atm, bas, env, shls_slice=None, comp=1, hermi=0,
         shape = (naoi, naoj, comp)
         prefix = 'GTO'
 
-    if intor_name.endswith('_cart') or intor_name.endswith('_sph'):
+    if intor_name.endswith(('_cart', '_sph')):
         dtype = numpy.double
         drv_name = prefix + 'int2c'
     else:
@@ -657,14 +655,15 @@ def getints4c(intor_name, atm, bas, env, shls_slice=None, comp=1,
             assert (numpy.all(ao_loc[k0:k1]-ao_loc[k0] == ao_loc[l0:l1]-ao_loc[l0]))
         else:
             nkl = [naok, naol]
-        shape = [comp] + nij + nkl
 
         if '_spinor' in intor_name:
+            shape = nij + nkl + [comp]
             drv = libcgto.GTOr4c_drv
             fill = libcgto.GTOr4c_fill_s1
-            out = numpy.ndarray(shape[::-1], dtype=numpy.complex128, buffer=out, order='F')
+            out = numpy.ndarray(shape, dtype=numpy.complex128, buffer=out, order='F')
             out = numpy.rollaxis(out, -1, 0)
         else:
+            shape = [comp] + nij + nkl
             drv = libcgto.GTOnr2e_fill_drv
             fill = getattr(libcgto, 'GTOnr2e_fill_'+aosym)
             out = numpy.ndarray(shape, buffer=out)
@@ -765,7 +764,7 @@ def getints_by_shell(intor_name, shls, atm, bas, env, comp=1):
         else:
             return buf.transpose(3,0,1,2)
 
-    elif intor_name.startswith('int2e') or intor_name.startswith('int4c'):
+    elif intor_name.startswith(('int2e', 'int4c')):
         assert (len(shls) == 4)
         di, dj, dk, dl = [num_cgto_of(x) for x in shls]
         buf = numpy.empty((di,dj,dk,dl,comp), dtype, order='F')

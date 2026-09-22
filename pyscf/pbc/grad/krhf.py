@@ -15,7 +15,6 @@
 #
 # Author: Yang Gao <younggao1994@gmail.com>
 
-#
 '''
 Non-relativistic analytical nuclear gradients for restricted Hartree Fock with kpoints sampling
 '''
@@ -91,6 +90,9 @@ def get_hcore(cell, kpts):
         If pseudo potential is turned on, the local term is included,
         but the nonlocal term is not included.
     '''
+    if cell._ecp:
+        raise NotImplementedError('ECP Gradients with PBC')
+
     h1 = np.asarray(cell.pbc_intor('int1e_ipkin', kpts=kpts))
     dtype = h1.dtype
     if cell._pseudo:

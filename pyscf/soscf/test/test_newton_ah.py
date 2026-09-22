@@ -21,6 +21,7 @@ import numpy
 import scipy.linalg
 import tempfile
 from pyscf import gto
+from pyscf.soscf import ciah
 from pyscf import scf
 from pyscf import dft
 
@@ -229,6 +230,21 @@ class KnownValues(unittest.TestCase):
         nr.conv_tol_grad = 1e-5
         self.assertAlmostEqual(nr.kernel(), eref, 9)
 
+    def test_nr_rks_second_grids(self):
+        '''second_grids are used in the orbital hessian of the second order solver'''
+        mf = dft.RKS(h2o_z0)
+        mf.xc = 'b3lyp'
+        eref = mf.kernel()
+        mf.set_second_grids(1)
+        mf.max_cycle = 1
+        mf.conv_check = False
+        mf.kernel()
+        nr = scf.newton(mf)
+        nr.max_cycle = 3
+        nr.conv_tol_grad = 1e-5
+        self.assertAlmostEqual(nr.kernel(), eref, 8)
+        mf.second_grids = None
+
     def test_rks_gen_g_hop(self):
         mf = dft.RKS(h2o_z0)
         mf.grids.build()
@@ -388,6 +404,30 @@ class KnownValues(unittest.TestCase):
         mol = gto.M(atom='He', basis='sto3g')
         mf = mol.RHF().newton().run()
         self.assertAlmostEqual(mf.e_tot, -2.80778395753997, 9)
+
+
+class KnownValuesCIAH(unittest.TestCase):
+    def test_davidson_cc_tiny_initial_guess(self):
+        # A recycled initial trial vector with norm ~1e-14 must not collapse
+        # the subspace metric: the solver has to take a genuine step and
+        # reduce the residual instead of returning an exact zero step on its
+        # first iteration.
+        numpy.random.seed(1)
+        n = 8
+        a = numpy.random.rand(n, n)
+        h = a.T.dot(a) + numpy.eye(n) * 2
+        g = numpy.random.rand(n)
+        h_op = lambda x: h.dot(x)
+        g_op = lambda: g
+        precond = lambda dx, w: dx
+        x0 = numpy.random.rand(n) * 1e-14
+        xtrial = None
+        for conv, itr, w, xtrial, hx, dx, seig in ciah.davidson_cc(
+                h_op, g_op, precond, x0, tol=1e-12):
+            if conv:
+                break
+        self.assertTrue(numpy.linalg.norm(xtrial) > 1e-6)
+        self.assertTrue(numpy.linalg.norm(dx) < 1e-5)
 
 
 if __name__ == "__main__":

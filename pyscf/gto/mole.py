@@ -103,6 +103,8 @@ with open(os.path.abspath(os.path.join(__file__, '..', 'basis', 'bse_meta.json')
     BSE_META = json.load(f)
 del f
 
+NUMBERED_ATOM_LABEL = re.compile("^[0-9]+ [A-Z]")
+
 def M(*args, **kwargs):
     r'''This is a shortcut to build up Mole object.
 
@@ -944,8 +946,7 @@ def intor_cross(intor, mol1, mol2, comp=None, grids=None):
 
     shls_slice = (0, nbas1, nbas1, nbas1+nbas2)
 
-    if (intor.endswith('_sph') or intor.startswith('cint') or
-        intor.endswith('_spinor') or intor.endswith('_cart')):
+    if (intor.endswith(('_sph', '_spinor', '_cart')) or intor.startswith('cint')):
         return moleintor.getints(intor, atmc, basc, envc, shls_slice, comp, 0)
     elif mol1.cart == mol2.cart:
         intor = mol1._add_suffix(intor)
@@ -1178,7 +1179,7 @@ def tot_electrons(mol):
     else:
         nelectron = sum(charge(a[0]) for a in format_atom(mol.atom))
     nelectron -= mol.charge
-    nelectron_int = int(round(nelectron))
+    nelectron_int = round(nelectron)
 
     if abs(nelectron - nelectron_int) > 1e-4:
         logger.warn(mol, 'Found fractional number of electrons %f. Round it to %d',
@@ -1294,7 +1295,7 @@ def loads(molstr):
     '''Deserialize a str containing a JSON document to a Mole object.
     '''
     # the numpy function array is used by eval function
-    from numpy import array  # noqa
+    from numpy import array
     moldic = json.loads(molstr)
     mol = Mole()
     mol.__dict__.update(moldic)
@@ -1731,18 +1732,22 @@ def search_ao_label(mol, label):
     '''
     return _aolabels2baslst(mol, label)
 
+def _compile_label(label: str) -> str:
+    label = re.sub(' +', ' ', label.strip(), count=1)
+    if NUMBERED_ATOM_LABEL.match(label):
+        label = "^" + label
+    return re.compile(label)
+
 def _aolabels2baslst(mol, aolabels_or_baslst, base=BASE):
     if callable(aolabels_or_baslst):
         baslst = [i for i,x in enumerate(mol.ao_labels(base=base))
                   if aolabels_or_baslst(x)]
     elif isinstance(aolabels_or_baslst, str):
-        aolabels = re.sub(' +', ' ', aolabels_or_baslst.strip(), count=1)
-        aolabels = re.compile(aolabels)
+        aolabels = _compile_label(aolabels_or_baslst)
         baslst = [i for i,s in enumerate(mol.ao_labels(base=base))
                   if re.search(aolabels, s)]
     elif len(aolabels_or_baslst) > 0 and isinstance(aolabels_or_baslst[0], str):
-        aolabels = [re.compile(re.sub(' +', ' ', x.strip(), count=1))
-                    for x in aolabels_or_baslst]
+        aolabels = [_compile_label(x) for x in aolabels_or_baslst]
         baslst = [i for i,t in enumerate(mol.ao_labels(base=base))
                   if any(re.search(x, t) for x in aolabels)]
     else:
@@ -2300,7 +2305,7 @@ class MoleBase(lib.StreamObject):
     >>> mol.charge = 1
     >>> mol.build()
     <class 'pyscf.gto.mole.Mole'> has no attributes Charge
-    '''  # noqa: E501
+    '''
 
     output = None
     max_memory = param.MAX_MEMORY
@@ -2772,7 +2777,7 @@ class MoleBase(lib.StreamObject):
                 self.stdout.write('\n')
                 self.stdout.write('\n')
                 finput.close()
-            except IOError:
+            except OSError:
                 logger.warn(self, 'input file does not exist')
 
         self.stdout.write('\n'.join(lib.misc.format_sys_info()))
@@ -2919,7 +2924,7 @@ class MoleBase(lib.StreamObject):
         >>> mol.set_rinv_origin(0)
         >>> mol.set_rinv_origin((0,1,0))
         '''
-        self._env[PTR_RINV_ORIG:PTR_RINV_ORIG+3] = coord[:3]
+        self._env[PTR_RINV_ORIG:PTR_RINV_ORIG+3] = coord
         return self
     set_rinv_orig = set_rinv_origin
     set_rinv_orig_ = set_rinv_orig    # for backward compatibility
@@ -3790,7 +3795,7 @@ class Mole(MoleBase):
 
         # Import all available modules. Some methods are registered to other
         # classes/modules when importing modules in __all__.
-        from pyscf import __all__  # noqa
+        from pyscf import __all__
         from pyscf import scf, dft
 
         attr_name = key
@@ -3956,8 +3961,11 @@ class Mole(MoleBase):
         return cell
 
     def to_gpu(self):
-        from gpu4pyscf.gto.mole import Mole
-        return Mole.from_cpu(self)
+        from gpu4pyscf.gto import mole
+        if hasattr(mole, 'Mole'):
+            return mole.Mole.from_cpu(self)
+        else: # Mole class is defined in gpu4pyscf 1.5 or newer
+            return self
 
 def _parse_default_basis(basis, uniq_atoms):
     if isinstance(basis, (str, tuple, list)):
@@ -4372,6 +4380,17 @@ def extract_pgto_params(mol, op='diffuse'):
         ke = np.log(c**2 / precision * 50**l + 1e-200) * e
         idx = lib.groupby(basis_id, ke, 'argmax')
     return e[idx], c[idx]
+
+def most_diffuse_pgto(mol):
+    '''
+    Returns the exponent, normalization factor and angular momentum of the most
+    diffuse primitive GTO
+    '''
+    exps, cs = extract_pgto_params(mol, 'diffuse')
+    ls = mol._bas[:,ANG_OF]
+    r2 = np.log(cs**2 / mol.precision * 10**ls + 1e-200) / exps
+    idx = r2.argmax()
+    return exps[idx], cs[idx], ls[idx]
 
 class _MoleLazyCallAdapter:
     '''Adapter for API updates. Should be removed in future'''

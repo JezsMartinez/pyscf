@@ -31,9 +31,9 @@ from pyscf.scf import _vhf, hf
 from pyscf.scf import cphf
 
 # import _response_functions to load gen_response methods in SCF class
-from pyscf.scf import _response_functions  # noqa
+from pyscf.scf import _response_functions
 # import pyscf.grad.rhf to activate nuc_grad_method method
-from pyscf.grad import rhf  # noqa
+from pyscf.grad import rhf
 
 
 def hess_elec(hessobj, mo_energy=None, mo_coeff=None, mo_occ=None,
@@ -241,7 +241,7 @@ def get_hcore(mol):
     h1aa = mol.intor('int1e_ipipkin', comp=9)
     h1ab = mol.intor('int1e_ipkinip', comp=9)
     if mol._pseudo:
-        NotImplementedError('Nuclear hessian for GTH PP')
+        raise NotImplementedError('Nuclear hessian for GTH PP')
     else:
         h1aa+= mol.intor('int1e_ipipnuc', comp=9)
         h1ab+= mol.intor('int1e_ipnucip', comp=9)

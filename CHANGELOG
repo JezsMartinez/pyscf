@@ -1,3 +1,104 @@
+PySCF 2.14.0 (2026-07-17)
+-------------------------
+* Added
+  - Gamma-point G0W0 for GWAC
+  - Bethe-Salpeter equation (BSE) for molecular GW module. Support both spin-restricted and spin-unrestricted.
+  - KRPA/KURPA: new routine for spin-restricted/unrestricted k-point RPA
+  - PBC RPA for smeared systems
+  - RCCSDT(Q) correction implementation
+  - MC26 and COF26 on-top functionals
+  - normalize CF22D functional and enable its built-in D3 dispersion
+  - spin-orbit coupling (SOC) Hamiltonian for GCCSD
+  - Implement CABS Singles correction (#3265)
+  - symmetry breaking via homo-lumo-mixing (#3271)
+  - Nuclear Gradients of GTH PP for molecules
+  - qavg-vSZPs basis and ecp-q-vSZP
+  - Analytic gradients for CASCI with UHF/RKS/UKS orbitals
+  - self-consistent dipole corrections for slab/2D systems (#3260) 
+* Improvements
+  - Windows support: DLL wrapper, compatibility
+  - GW improvements, including
+    - PBC G0W0 (#3222). Improve CPU and memory efficiency for KRGWAC and KUGWAC.
+    - GW improvements: self-consistent PBC GW routines (#3244)
+    - molecular GW routines (#3236)
+  - Support complex orbitals in GCCSD
+  - gto/ecp: fix premature convergence in radial quadrature at large exponents (#3250)
+  - Refactoring high-order CC implementations
+  - KRPA and KURPA: improve the numerical stablity of ACFD EXX
+  - SCF logging and add HOMO-LUMO gap reporting (#3281)
+  - Make wb97x-d4 configurable. DFTD4 recommended variants can be enabled by the parameter dispersion.DFTD4_RECOMMENDATIONS.
+  - Molecular Pipek-Mezey localization code refactored.
+  - Pipek-Mezey Wannier functions for PBC k-point orbitals constructed using CIAH algorithm. Wannier interpolation for PBC k-point calculations.
+  - allow customizing functionals by param name.
+* Fixes
+  - Load basis sets from the Basis Set Exchange (BSE) when elements are missing from local `.dat` files
+  - init_guess_by_mod_huckel function can now be called without arguments
+  - fixed memory over allocation in PCM gradients (fixes #3246)
+  - Fixed KeyError for MM ECPs in project_to_atomic_orbitals (#3243)
+  - Molden parser now handles files without the `Sym` field
+  - pbc/df: chunk kpt-pairs in CCGDFBuilder.outcore_auxe2 to avoid OOM (#3257)
+  - Atomic approximation for GHF X2C
+  - meta-GGA second derivative ordering for custom XC
+  - bad atomic radii assigned to ghost atom, which causes a bad Becke partition and a negative BSSE (#3302)
+  - density fitting UKS hessian
+
+
+PySCF 2.13.1 (2026-06-01)
+-------------------------
+* Fixes
+  - Missing CP2K basis set data in wheel distributions
+  - Small-rotor error.
+  - Corrected SG1 grid radii handling for ghost atoms.
+  - Fixed ECP loading to correctly fall back to Basis Set Exchange when local data is unavailable.
+
+
+PySCF 2.13.0 (2026-04-20)
+-------------------------
+* Added
+  - ASE band structure interface
+  - SOC-ECP for PBC DFT methods
+  - `get_rho_with_derivatives()` function
+  - PCM ISWIG surface discretization method
+  - `grid_response` support for the Stratmann grid partition scheme
+  - Cartesian basis support in the PCM solvent module
+  - `gw_ac` and `ugw_ac` methods
+  - meta-GGA support in multigrid methods (currently computed in a slower mode)
+  - SGX gradients
+* Improvements
+  - Warnings for basis-element mismatch
+  - Updated GTH basis set and pseudopotential databases
+  - Enforced real orbitals for time-reversal symmetric KSCF
+  - Added sanity checks to prevent bugs in the Newton solver for PBC mean-field methods
+  - Updated ccECP from pseudopotentiallibrary.org
+  - Improved PBC 2c2e integral accuracy for better numerical stability in PBC-GDF methods
+  - SGX implementation for improved numerical accuracy and performance
+  - Canonical orthogonalization by default in the SCF eigenvalue solver
+  - Support specifying "autoaux" as a key for auxiliary basis set 
+* Fixes
+  - RSJK initialization
+  - Skipped printing of velocity and magnetic dipole moments when ECP is detected
+  - `mo_coeff` reshape size in PBC SCF HF DF-JK
+  - XYZ file parser
+  - A bug where PCM assigned incorrect radii to ECP atoms
+  - Inconsistent symmetry axis assignment for D₂h molecules (#2773)
+  - Load default cell and k-points in `KGHF.get_hcore`
+  - POSCAR parser bug
+  - Handle ghost atoms in the QM/MM interface
+  - Errors in AO values caused by an incorrect diffuseness estimator
+  - Edge case involving empty arrays in DF-JK construction for PBC DF
+  - Incorrect DF-MP2 energy when using `jkfit` in HF and `rifit` in MP2
+  - Edge case for the `frozen` attribute (`frozen=0`)
+  - PBC nuclear gradients in `fft_jk.get_k_e1` with `exxdiv=ewald`
+* API Updates
+  - Set `multigrid2` as the default multigrid integrator
+  - Smearing functions are moved to a separate module
+  - Set default `auxbasis_response` level to 2 (full response) in density-fitting Hessian methods
+  - Dump `nelecas` in mcscf chkfile
+  - Allow to skip `.run()` for intermediate instances in method chains
+  - In method pipelines, `.run()` of intermediate steps is now executed automatically
+  - Linear dependency for orbital bases are removed by default in SCF
+
+
 PySCF 2.12.1 (2026-01-27)
 -------------------------
 * Fixes
@@ -60,7 +161,7 @@ PySCF 2.11.0 (2025-10-15)
   - Analytical nuclear gradients for DFT+U methods
   - Gaussian charge models for MM particles in QM/MM interface
   - MC25 functional parameters
-  - Stress tensor for semi-local functioanlsGGA, 
+  - Stress tensor for semi-local functioanlsGGA,
   - Fixed-Size APC active space selection
 * Improved
   - libxc interface for customizing functional parameters
@@ -256,7 +357,7 @@ PySCF 2.6.0 (2024-06-01)
 PySCF 2.5.0 (2024-02-03)
 ------------------------
 * Added
-  - SA-CASSCF Nonadiabatic Coupling Vectors 
+  - SA-CASSCF Nonadiabatic Coupling Vectors
   - The to_gpu function to convert pyscf objects to gpu4pyscf objects.
   - 4th, and 5th order XC derivatives.
 * Improved
