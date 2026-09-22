@@ -808,11 +808,14 @@ def get_value_at_points_new(vemb_fft, points, fast=None):
             p2[:, i] = numpy.mod(p2[:, i], nr[i])
         values=vemb_fft[p2[:,0],p2[:,1],p2[:,2]]
     else:
+        # spl_coeffs is padded by spl_order per side and already spline_filter'ed
+        # by DirectField._calc_spline, so shift by spl_order and skip prefiltering
+        # (cf. DirectField.get_value_at_points).
         for i in range(3):
-            p[:, i] = numpy.mod(p[:, i], nr[i])
+            p[:, i] = numpy.mod(p[:, i], nr[i]) + vemb_fft.spl_order
         values = ndimage.map_coordinates(vemb_fft.spl_coeffs,
                                         [p[:, 0], p[:, 1], p[:, 2]],
-                                        mode="wrap")
+                                        mode="wrap", prefilter=False)
     return values
 
 
